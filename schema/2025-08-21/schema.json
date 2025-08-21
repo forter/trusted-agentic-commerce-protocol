@@ -1,0 +1,1326 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/forter/trusted-agentic-commerce/schema/2025-08-21/schema.json",
+  "title": "Trusted Agentic Commerce Protocol Data Schema",
+  "description": "A comprehensive JSON schema for securely exchanging encrypted data between parties using the Trusted Agentic Commerce Protocol. Version 2025-08-21.",
+  "version": "2025-08-21",
+  "definitions": {
+    "Verification": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "MAGIC_LINK",
+            "EMAIL_OTP", 
+            "SMS_OTP",
+            "PHONE_CALL",
+            "SOCIAL_LOGIN_GOOGLE",
+            "SOCIAL_LOGIN_FACEBOOK",
+            "SOCIAL_LOGIN_APPLE",
+            "SOCIAL_LOGIN_MICROSOFT",
+            "AUTHENTICATOR_APP",
+            "PASSKEYS",
+            "BIOMETRIC",
+            "DOCUMENT",
+            "OTHER"
+          ],
+          "description": "Method used for verification"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the information was verified (ISO 8601 timestamp)"
+        }
+      },
+      "required": ["method", "at"],
+      "additionalProperties": false
+    },
+    "Email": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "format": "email",
+          "description": "Email address"
+        },
+        "verifications": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Verification"},
+          "description": "Verification information if available"
+        }
+      },
+      "required": ["address"],
+      "additionalProperties": false
+    },
+    "Phone": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": "string",
+          "description": "Phone number in E.164 format (+14155550123)"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["MOBILE", "LANDLINE", "VOIP", "OTHER"],
+          "description": "Type of phone number"
+        },
+        "verifications": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Verification"},
+          "description": "Verification information if available"
+        }
+      },
+      "required": ["number"],
+      "additionalProperties": false
+    },
+    "Address": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Full name for this address"
+        },
+        "company": {
+          "type": "string",
+          "description": "Company name if applicable"
+        },
+        "line1": {
+          "type": "string",
+          "description": "Address line 1"
+        },
+        "line2": {
+          "type": "string",
+          "description": "Address line 2 (apartment, suite, etc.)"
+        },
+        "city": {
+          "type": "string",
+          "description": "City"
+        },
+        "region": {
+          "type": "string",
+          "description": "State/Region/Province"
+        },
+        "postal": {
+          "type": "string",
+          "description": "Postal/ZIP code"
+        },
+        "country": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "Country code (ISO 3166-1 alpha-2)"
+        },
+        "coordinates": {
+          "type": "object",
+          "properties": {
+            "latitude": {"type": "number"},
+            "longitude": {"type": "number"}
+          },
+          "required": ["latitude", "longitude"],
+          "additionalProperties": false,
+          "description": "Geocoding information if available"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "RESIDENTIAL",
+            "COMMERCIAL",
+            "POB",
+            "HOTEL",
+            "FORWARDER",
+            "RESHIPPER",
+            "WAREHOUSE",
+            "MILITARY",
+            "TEMPORARY",
+            "OTHER"
+          ],
+          "description": "Address type"
+        }
+      },
+      "required": ["line1", "city", "region", "postal", "country"],
+      "additionalProperties": false
+    },
+    "Size": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "description": "The size value"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Unit of measurement if applicable"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "HISTORICAL_PURCHASE",
+            "USER_INPUT",
+            "INFERRED",
+            "SURVEY",
+            "BEHAVIORAL",
+            "OTHER"
+          ],
+          "description": "How this size was determined"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this size was last used, recorded or measured (ISO 8601 timestamp)"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Confidence level (0-1)"
+        }
+      },
+      "required": ["value"],
+      "additionalProperties": false
+    },
+    "ShippingMethod": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "STANDARD",
+            "EXPRESS",
+            "OVERNIGHT",
+            "SAME_DAY",
+            "IN_STORE_PICKUP",
+            "LOCKER_PICKUP",
+            "CURBSIDE",
+            "DRONE",
+            "OTHER"
+          ],
+          "description": "Shipping method type"
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "Preferences": {
+      "type": "object",
+      "properties": {
+        "brands": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Preferred brands"
+        },
+        "colors": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Preferred colors"
+        },
+        "sizes": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/definitions/Size"},
+          "description": "Size preferences for various categories"
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]{2}$"
+          },
+          "description": "Language preferences (ISO 639-1 codes)"
+        },
+        "currencies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "description": "Preferred currencies (ISO 4217 codes)"
+        },
+        "communication": {
+          "type": "object",
+          "properties": {
+            "email": {"type": "boolean"},
+            "sms": {"type": "boolean"},
+            "push": {"type": "boolean"},
+            "frequency": {
+              "type": "string",
+              "enum": ["DAILY", "WEEKLY", "MONTHLY", "NEVER", "OTHER"]
+            }
+          },
+          "additionalProperties": false,
+          "description": "Communication preferences"
+        },
+        "deliveryTimes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["MORNING", "AFTERNOON", "EVENING", "WEEKEND", "OTHER"]
+          },
+          "description": "Delivery time preferences"
+        },
+        "shippingMethods": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/ShippingMethod"},
+          "description": "Shipping method preferences"
+        },
+        "flight": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "description": "Origin airport or city (Airport code like LAX or city name)"
+            },
+            "destination": {
+              "type": "string",
+              "description": "Destination airport or city (Airport code like JFK or city name)"
+            },
+            "departure": {
+              "type": "string",
+              "format": "date",
+              "description": "Departure date (ISO 8601 date)"
+            },
+            "return": {
+              "type": "string",
+              "format": "date",
+              "description": "Return date (ISO 8601 date)"
+            },
+            "passengers": {
+              "type": "object",
+              "properties": {
+                "adults": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Number of adults (usually age 12+)"
+                },
+                "children": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Number of children (usually ages 2-11)"
+                },
+                "infants": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Number of infants (usually under 2 years)"
+                }
+              },
+              "additionalProperties": false,
+              "description": "Typical passenger breakdown the user travels or books for"
+            },
+            "airlines": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Preferred airlines"
+            },
+            "departureTimes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "EARLY_MORNING",
+                  "MORNING",
+                  "AFTERNOON",
+                  "EVENING",
+                  "LATE_NIGHT",
+                  "RED_EYE"
+                ]
+              },
+              "description": "Preferred departure times"
+            },
+            "arrivalTimes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "EARLY_MORNING",
+                  "MORNING",
+                  "AFTERNOON",
+                  "EVENING",
+                  "LATE_NIGHT",
+                  "RED_EYE"
+                ]
+              },
+              "description": "Preferred arrival times"
+            },
+            "maxStops": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum number of stops"
+            },
+            "classes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ECONOMY",
+                  "PREMIUM_ECONOMY",
+                  "BUSINESS",
+                  "FIRST",
+                  "OTHER"
+                ]
+              },
+              "description": "Preferred cabin class"
+            },
+            "seats": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "AISLE",
+                  "WINDOW",
+                  "MIDDLE",
+                  "EXIT_ROW",
+                  "OTHER"
+                ]
+              },
+              "description": "Preferred seat type"
+            },
+            "meals": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "VEGETARIAN",
+                  "VEGAN",
+                  "KOSHER",
+                  "HALAL",
+                  "GLUTEN_FREE",
+                  "DIABETIC",
+                  "LOW_SODIUM",
+                  "CHILD",
+                  "INFANT",
+                  "OTHER"
+                ]
+              },
+              "description": "Preferred meals"
+            },
+            "services": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "WHEELCHAIR",
+                  "MEDICAL_EQUIPMENT",
+                  "UNACCOMPANIED_MINOR",
+                  "PET_TRAVEL",
+                  "LOUNGE_ACCESS",
+                  "OTHER"
+                ]
+              },
+              "description": "Special service requests"
+            },
+            "specialRequests": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Special requests or instructions"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Flight preferences"
+        },
+        "hotel": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "Airport code (e.g., JFK) or city name"
+            },
+            "checkIn": {
+              "type": "string",
+              "format": "date",
+              "description": "Check-in date (ISO 8601 date)"
+            },
+            "checkOut": {
+              "type": "string",
+              "format": "date",
+              "description": "Check-out date (ISO 8601 date)"
+            },
+            "guests": {
+              "type": "object",
+              "properties": {
+                "adults": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Number of adults"
+                },
+                "children": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Number of children"
+                },
+                "infants": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Number of infants"
+                }
+              },
+              "additionalProperties": false,
+              "description": "Typical guest breakdown the user books for"
+            },
+            "brands": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Preferred hotel brands"
+            },
+            "roomTypes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "STANDARD",
+                  "FAMILY",
+                  "APARTMENT",
+                  "VILLA",
+                  "SUITE",
+                  "OTHER"
+                ]
+              },
+              "description": "Preferred room type"
+            },
+            "rooms": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of rooms"
+            },
+            "bedTypes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "KING",
+                  "QUEEN",
+                  "DOUBLE",
+                  "TWIN",
+                  "SINGLE",
+                  "SOFA_BED",
+                  "BUNK",
+                  "OTHER"
+                ]
+              },
+              "description": "Preferred bed type"
+            },
+            "accessibilities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "WHEELCHAIR_ACCESSIBLE",
+                  "HEARING_IMPAIRED",
+                  "VISUALLY_IMPAIRED",
+                  "SERVICE_ANIMAL",
+                  "OTHER"
+                ]
+              },
+              "description": "Accessibility requirements"
+            },
+            "amenities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "WIFI",
+                  "BREAKFAST_INCLUDED",
+                  "GYM",
+                  "POOL",
+                  "SPA",
+                  "PARKING",
+                  "AIR_CONDITIONING",
+                  "KITCHEN",
+                  "PET_FRIENDLY",
+                  "EV_CHARGING",
+                  "RESTAURANT",
+                  "BAR",
+                  "LAUNDRY",
+                  "OTHER"
+                ]
+              },
+              "description": "Amenities preferences"
+            },
+            "services": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "EARLY_CHECKIN",
+                  "LATE_CHECKIN",
+                  "LATE_CHECKOUT",
+                  "HIGH_FLOOR",
+                  "QUIET_ROOM",
+                  "SMOKING_ROOM",
+                  "NON_SMOKING_ROOM",
+                  "CONNECTING_ROOMS",
+                  "WHEELCHAIR_ACCESSIBLE",
+                  "EXTRA_PILLOWS",
+                  "CRIB",
+                  "ROLLAWAY_BED",
+                  "BREAKFAST_INCLUDED",
+                  "FRONT_DESK",
+                  "HOUSEKEEPING",
+                  "CONCIERGE",
+                  "ROOM_SERVICE",
+                  "LUGGAGE_STORAGE",
+                  "LAUNDRY",
+                  "DRY_CLEANING",
+                  "SHUTTLE",
+                  "VALET",
+                  "PET_FRIENDLY",
+                  "BABYSITTING",
+                  "CAR_RENTAL",
+                  "PRINTING",
+                  "PACKAGE_RECEIVING",
+                  "OTHER"
+                ]
+              },
+              "description": "Special service requests"
+            },
+            "specialRequests": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Special requests or instructions"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Hotel preferences"
+        },
+        "carRental": {
+          "type": "object",
+          "properties": {
+            "primaryDriverAge": {
+              "type": "string",
+              "enum": ["UNDER_25", "25_64", "65_PLUS"],
+              "description": "Primary driver age range"
+            },
+            "additionalDrivers": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of additional drivers"
+            },
+            "companies": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Preferred car rental companies"
+            },
+            "categories": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ECONOMY",
+                  "COMPACT",
+                  "MIDSIZE",
+                  "FULLSIZE",
+                  "PREMIUM",
+                  "LUXURY",
+                  "SUV",
+                  "MINIVAN",
+                  "PICKUP",
+                  "CONVERTIBLE",
+                  "SPORTS",
+                  "ELECTRIC",
+                  "HYBRID",
+                  "OTHER"
+                ]
+              },
+              "description": "Preferred vehicle categories"
+            },
+            "transmission": {
+              "type": "string",
+              "enum": ["AUTOMATIC", "MANUAL"],
+              "description": "Preferred transmission type"
+            },
+            "fuelTypes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "GASOLINE",
+                  "DIESEL",
+                  "ELECTRIC",
+                  "HYBRID",
+                  "PLUG_IN_HYBRID",
+                  "HYDROGEN",
+                  "OTHER"
+                ]
+              },
+              "description": "Fuel type preferences"
+            },
+            "pickupLocations": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "AIRPORT",
+                  "HOTEL",
+                  "CITY_CENTER",
+                  "TRAIN_STATION",
+                  "RENTAL_OFFICE",
+                  "OTHER"
+                ]
+              },
+              "description": "Preferred pickup locations"
+            },
+            "insurance": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "CDW",
+                  "SCDW",
+                  "TP",
+                  "STP",
+                  "LI",
+                  "PAI",
+                  "PEC",
+                  "SLI",
+                  "OTHER"
+                ]
+              },
+              "description": "Insurance preferences"
+            },
+            "accessibilities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "HAND_CONTROLS",
+                  "WHEELCHAIR_ACCESSIBLE",
+                  "SWIVEL_SEAT",
+                  "SPINNER_KNOB",
+                  "LEFT_FOOT_ACCELERATOR",
+                  "OTHER"
+                ]
+              },
+              "description": "Accessibility requirements"
+            },
+            "services": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "GPS_NAVIGATION",
+                  "WIFI_HOTSPOT",
+                  "CHILD_SEAT",
+                  "BOOSTER_SEAT",
+                  "INFANT_SEAT",
+                  "SKI_RACK",
+                  "BIKE_RACK",
+                  "ROOF_BOX",
+                  "SNOW_CHAINS",
+                  "ROADSIDE_ASSISTANCE",
+                  "ONE_WAY_RENTAL",
+                  "LONG_TERM_RENTAL",
+                  "CORPORATE_RATE",
+                  "LOYALTY_PROGRAM",
+                  "MOBILE_CHECKIN",
+                  "KEYLESS_ENTRY",
+                  "CONTACTLESS_PICKUP",
+                  "VEHICLE_SANITIZATION",
+                  "FUEL_PREPURCHASE",
+                  "RETURN_REFUEL_SERVICE",
+                  "UNLIMITED_MILEAGE",
+                  "OTHER"
+                ]
+              },
+              "description": "Special equipment, add-ones and service preferences"
+            },
+            "specialRequests": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Special requests or instructions"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Car rental preferences"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Item": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Item identifier (either id or sku is required)"
+        },
+        "sku": {
+          "type": "string",
+          "description": "Stock Keeping Unit identifier (either id or sku is required)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Product name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Product description"
+        },
+        "category": {
+          "type": "string",
+          "description": "Product category"
+        },
+        "brand": {
+          "type": "string",
+          "description": "Product brand"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Product URL"
+        },
+        "imageUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Product image URL"
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": {"type": "string"},
+          "description": "Product attributes (size, color, etc.)"
+        },
+        "price": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Unit price"
+        },
+        "availability": {
+          "type": "string",
+          "enum": [
+            "IN_STOCK",
+            "OUT_OF_STOCK",
+            "PREORDER",
+            "BACKORDER",
+            "OTHER"
+          ],
+          "description": "Product availability"
+        },
+        "rating": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Product rating"
+        },
+        "reviews": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of reviews"
+            },
+            "average": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 5,
+              "description": "Average rating"
+            }
+          },
+          "required": ["count", "average"],
+          "additionalProperties": false,
+          "description": "Product reviews"
+        }
+      },
+      "anyOf": [
+        {"required": ["id"]},
+        {"required": ["sku"]}
+      ],
+      "additionalProperties": false
+    },
+    "CartItem": {
+      "allOf": [
+        {"$ref": "#/definitions/Item"},
+        {
+          "type": "object",
+          "properties": {
+            "quantity": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Quantity"
+            },
+            "price": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Unit price (required for cart items)"
+            }
+          },
+          "required": ["quantity", "price"]
+        }
+      ]
+    },
+    "Cart": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/CartItem"},
+          "description": "Items in the cart"
+        },
+        "discounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "number",
+                "description": "Discount amount"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["FIXED", "PERCENTAGE"],
+                "description": "Discount type"
+              },
+              "code": {
+                "type": "string",
+                "description": "Discount code"
+              }
+            },
+            "required": ["amount", "type"],
+            "additionalProperties": false
+          },
+          "description": "Applied discounts"
+        }
+      },
+      "required": ["items"],
+      "additionalProperties": false
+    },
+    "TokenizedCard": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["CREDIT", "DEBIT", "PREPAID", "OTHER"],
+          "description": "Card type"
+        },
+        "brand": {
+          "type": "string",
+          "enum": [
+            "VISA",
+            "MASTERCARD",
+            "AMEX",
+            "DISCOVER",
+            "JCB",
+            "DINERS",
+            "UNIONPAY",
+            "OTHER"
+          ],
+          "description": "Card brand"
+        },
+        "provider": {
+          "type": "string",
+          "description": "Token provider"
+        },
+        "token": {
+          "type": "string",
+          "description": "Payment token"
+        },
+        "expiryMonth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12,
+          "description": "Expiration month (1-12)"
+        },
+        "expiryYear": {
+          "type": "integer",
+          "minimum": 2020,
+          "description": "Expiration year"
+        },
+        "last4": {
+          "type": "string",
+          "pattern": "^[0-9]{4}$",
+          "description": "Last 4 digits of the card"
+        },
+        "holderName": {
+          "type": "string",
+          "description": "Cardholder name"
+        },
+        "billingAddress": {
+          "$ref": "#/definitions/Address",
+          "description": "Billing address associated with the card"
+        }
+      },
+      "required": ["token"],
+      "additionalProperties": false
+    },
+    "PaymentMethod": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["CARD", "BANK_ACCOUNT", "DIGITAL_WALLET", "CRYPTOCURRENCY", "BNPL", "OTHER"],
+          "description": "Type of payment method"
+        },
+        "card": {
+          "$ref": "#/definitions/TokenizedCard",
+          "description": "Tokenized card information if type is CARD"
+        },
+        "bankAccount": {
+          "type": "object",
+          "properties": {
+            "accountType": {
+              "type": "string",
+              "enum": ["CHECKING", "SAVINGS", "OTHER"],
+              "description": "Account type"
+            },
+            "bankName": {
+              "type": "string",
+              "description": "Bank name"
+            },
+            "last4": {
+              "type": "string",
+              "pattern": "^[0-9]{4}$",
+              "description": "Last 4 digits of account number"
+            },
+            "token": {
+              "type": "string",
+              "description": "Bank account token"
+            }
+          },
+          "required": ["token"],
+          "additionalProperties": false,
+          "description": "Bank account information (tokenized)"
+        },
+        "digitalWallet": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "APPLE_PAY",
+                "GOOGLE_PAY",
+                "PAYPAL",
+                "AMAZON_PAY",
+                "SAMSUNG_PAY",
+                "VENMO",
+                "ALIPAY",
+                "WECHAT_PAY",
+                "CASH_APP",
+                "SKRILL",
+                "NETELLER",
+                "LINE_PAY",
+                "GRABPAY",
+                "GCASH",
+                "REVOLUT",
+                "ZELLE",
+                "OTHER"
+              ],
+              "description": "Digital wallet provider"
+            },
+            "token": {
+              "type": "string",
+              "description": "Wallet token"
+            }
+          },
+          "required": ["provider"],
+          "additionalProperties": false,
+          "description": "Digital wallet information"
+        },
+        "cryptoCurrency": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "BITCOIN",
+                "ETHEREUM",
+                "SOLANA",
+                "LITECOIN",
+                "DOGECOIN",
+                "OTHER"
+              ],
+              "description": "Crypto currency provider"
+            },
+            "token": {
+              "type": "string",
+              "description": "Crypto token"
+            }
+          },
+          "required": ["provider"],
+          "additionalProperties": false,
+          "description": "Crypto currency information"
+        },
+        "bnpl": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": ["KLARNA", "AFTERPAY", "AFFIRM", "SEZZLE", "ZIP", "OTHER"],
+              "description": "BNPL provider"
+            },
+            "token": {
+              "type": "string",
+              "description": "BNPL token"
+            },
+            "otherProviderName": {
+              "type": "string",
+              "description": "Optional: specify the name if provider is 'OTHER'"
+            }
+          },
+          "required": ["provider"],
+          "additionalProperties": false,
+          "description": "Buy now, pay later options"
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "Loyalty": {
+      "type": "object",
+      "properties": {
+        "programId": {
+          "type": "string",
+          "description": "Loyalty program identifier"
+        },
+        "memberId": {
+          "type": "string",
+          "description": "Member ID in the loyalty program"
+        },
+        "balance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Current points/miles balance"
+        },
+        "tier": {
+          "type": "string",
+          "description": "Tier/status level"
+        },
+        "pointsToRedeem": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Points to be used for this transaction"
+        }
+      },
+      "required": ["programId", "memberId"],
+      "additionalProperties": false
+    },
+    "User": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "User ID in the agent and/or merchant system"
+        },
+        "email": {
+          "$ref": "#/definitions/Email",
+          "description": "User email information"
+        },
+        "phone": {
+          "$ref": "#/definitions/Phone",
+          "description": "User phone information"
+        },
+        "preferences": {
+          "$ref": "#/definitions/Preferences",
+          "description": "User preferences for personalization"
+        },
+        "loyalties": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Loyalty"},
+          "description": "Loyalty programs"
+        },
+        "paymentMethods": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/PaymentMethod"},
+          "description": "Payment methods"
+        },
+        "addresses": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Address"},
+          "description": "User addresses"
+        },
+        "created": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Account creation date (ISO 8601 timestamp)"
+        },
+        "lastLogin": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last login date (ISO 8601 timestamp)"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ACTIVE", "SUSPENDED", "PENDING_VERIFICATION", "CLOSED", "OTHER"],
+          "description": "Account status"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["INDIVIDUAL", "BUSINESS", "PREMIUM", "OTHER"],
+          "description": "Account type"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Order": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Order ID"
+        },
+        "cart": {
+          "$ref": "#/definitions/Cart",
+          "description": "Shopping cart information"
+        },
+        "total": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Order total amount"
+        },
+        "subtotal": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Subtotal before taxes and fees"
+        },
+        "tax": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Tax amount"
+        },
+        "shipping": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Shipping cost"
+        },
+        "billingAddress": {
+          "$ref": "#/definitions/Address",
+          "description": "Billing address"
+        },
+        "shippingAddress": {
+          "$ref": "#/definitions/Address",
+          "description": "Shipping address"
+        },
+        "shippingMethod": {
+          "$ref": "#/definitions/ShippingMethod",
+          "description": "Shipping method"
+        },
+        "paymentMethod": {
+          "$ref": "#/definitions/PaymentMethod",
+          "description": "Selected payment method for this order"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "description": "Order currency (ISO 4217)"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["PURCHASE", "REFUND", "AUTHORIZATION", "CAPTURE", "OTHER"],
+          "description": "Order type"
+        },
+        "otherType": {
+          "type": "string",
+          "description": "Optional: specify the name if type is 'OTHER'"
+        },
+        "created": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Order timestamp (ISO 8601 timestamp)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Session": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Session ID"
+        },
+        "channel": {
+          "type": "string",
+          "enum": ["WEB", "MOBILE", "CHAT", "VOICE", "API", "OTHER"],
+          "description": "Communication channel"
+        },
+        "otherChannel": {
+          "type": "string",
+          "description": "Optional: specify the name if channel is 'OTHER'"
+        },
+        "source": {
+          "type": "string",
+          "description": "Traffic source"
+        },
+        "referrer": {
+          "type": "string",
+          "format": "uri",
+          "description": "Referrer URL"
+        },
+        "intent": {
+          "type": "string",
+          "description": "Underlying user goal and desired outcome"
+        },
+        "consent": {
+          "type": "string",
+          "description": "Explicit or implicit permission granted to take specific actions"
+        },
+        "ipAddress": {
+          "type": "string",
+          "oneOf": [
+            {"format": "ipv4"},
+            {"format": "ipv6"}
+          ],
+          "description": "IP address"
+        },
+        "userAgent": {
+          "type": "string",
+          "description": "User agent string"
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Vendor-specific keys for additional session data"
+      }
+    },
+    "Callback": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "The callback URL"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["CART_STATUS", "ORDER_STATUS", "PAYMENT_STATUS", "SHIPPING_STATUS", "DISPUTE_STATUS", "OTHER"]
+          },
+          "minItems": 1,
+          "description": "Events this URL should receive"
+        }
+      },
+      "required": ["url", "events"],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "2025-08-21",
+      "description": "Version of the schema"
+    },
+    "user": {
+      "$ref": "#/definitions/User",
+      "description": "User information and account details"
+    },
+    "order": {
+      "$ref": "#/definitions/Order",
+      "description": "Order/transaction information"
+    },
+    "session": {
+      "$ref": "#/definitions/Session",
+      "description": "Session context and tracking"
+    },
+    "items": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/Item"},
+      "description": "Standalone items (not necessarily in cart)"
+    },
+    "callbacks": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/Callback"},
+      "description": "Callback URLs for async events"
+    },
+    "custom": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Custom fields for extensibility"
+    }
+  },
+  "required": ["schemaVersion"],
+  "additionalProperties": false
+}

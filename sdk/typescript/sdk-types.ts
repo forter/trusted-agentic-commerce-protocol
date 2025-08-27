@@ -1,8 +1,8 @@
 import { KeyObject } from 'node:crypto';
 
 // Import ALL schema types from the canonical source
-export * from '../../schema/2025-08-21/schema.js';
-import type * as Schema from '../../schema/2025-08-21/schema.js';
+export * from '../../schema/2025-08-27/schema.js';
+import type * as Schema from '../../schema/2025-08-27/schema.js';
 
 /**
  * JWKS structure

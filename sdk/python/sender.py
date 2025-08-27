@@ -220,7 +220,7 @@ class TACSender:
 
         # Create multi-recipient container
         multi_recipient_message = {
-            'version': '2025-08-21',
+            'version': '2025-08-27',
             'recipients': recipient_jwes
         }
 

@@ -1,6 +1,6 @@
 """Protocol version for Trusted Agentic Commerce Protocol"""
 
-PROTOCOL_VERSION = "2025-08-21"
+PROTOCOL_VERSION = "2025-08-27"
 SDK_VERSION = "0.1.0"
 SDK_LANGUAGE = "Python"
 

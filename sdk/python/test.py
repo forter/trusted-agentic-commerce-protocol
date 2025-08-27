@@ -225,7 +225,7 @@ class TestTACRecipient(unittest.TestCase):
     def test_inspect_tac_message_without_decryption(self):
         """Test static inspect method"""
         mock_message = {
-            'version': '2025-08-21',
+            'version': '2025-08-27',
             'recipients': [
                 {'kid': 'merchant.com', 'jwe': 'encrypted_data_for_merchant'},
                 {'kid': 'forter.com', 'jwe': 'encrypted_data_for_forter'}
@@ -236,7 +236,7 @@ class TestTACRecipient(unittest.TestCase):
         base64_mock_message = base64.b64encode(mock_message_string.encode('utf-8')).decode('utf-8')
         info = TACRecipient.inspect(base64_mock_message)
         
-        self.assertEqual(info['version'], '2025-08-21')
+        self.assertEqual(info['version'], '2025-08-27')
         self.assertEqual(info['recipients'], ['merchant.com', 'forter.com'])
 
 

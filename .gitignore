@@ -1,0 +1,46 @@
+# macOS system files
+.DS_Store
+
+# Environment files
+.env
+
+# Editor directories and settings
+.idea/
+.vscode/
+.claude/
+.cursor/
+CLAUDE.md
+
+# Node.js build and dependency directories
+**/dist/
+**/node_modules/
+
+# Python build and dependency directories
+**/build/
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+*.egg-info/
+.venv/
+*.pyc
+*.egg-info/
+
+# Certificates and keys
+*.crt
+*.key
+*.pem
+# Certificates and keys
+*.crt
+*.key
+*.pem
+
+# Logs
+# Logs
+*.log
+
+# TypeScript compiled files  
+**/*.d.ts
+**/*.d.ts.map
+schema/**/*.js
+schema/**/*.js.map

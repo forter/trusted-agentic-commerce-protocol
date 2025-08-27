@@ -1,6 +1,6 @@
 /**
  * Trusted Agentic Commerce Protocol - Data Schema
- * Version: 2025-08-21
+ * Version: 2025-08-27
  * 
  * A comprehensive JSON schema for securely exchanging encrypted data
  * between parties using the Trusted Agentic Commerce Protocol.
@@ -760,7 +760,7 @@ export interface Recipient {
  */
 export interface EncryptedDataContainer {
   /** Version of the encryption format */
-  version: '2025-08-21';
+  version: '2025-08-27';
   /** Object mapping recipient domains to their encrypted data */
   recipients: Record<string, Partial<Recipient>>;
 }

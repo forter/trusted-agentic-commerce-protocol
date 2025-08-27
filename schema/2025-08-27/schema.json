@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/forter/trusted-agentic-commerce/schema/2025-08-21/schema.json",
+  "$id": "https://github.com/forter/trusted-agentic-commerce/schema/2025-08-27/schema.json",
   "title": "Trusted Agentic Commerce Protocol Data Schema",
-  "description": "A comprehensive JSON schema for securely exchanging encrypted data between parties using the Trusted Agentic Commerce Protocol. Version 2025-08-21.",
-  "version": "2025-08-21",
+  "description": "A comprehensive JSON schema for securely exchanging encrypted data between parties using the Trusted Agentic Commerce Protocol. Version 2025-08-27.",
+  "version": "2025-08-27",
   "definitions": {
     "Verification": {
       "type": "object",
@@ -12,7 +12,7 @@
           "type": "string",
           "enum": [
             "MAGIC_LINK",
-            "EMAIL_OTP", 
+            "EMAIL_OTP",
             "SMS_OTP",
             "PHONE_CALL",
             "SOCIAL_LOGIN_GOOGLE",
@@ -46,7 +46,7 @@
         },
         "verifications": {
           "type": "array",
-          "items": {"$ref": "#/definitions/Verification"},
+          "items": { "$ref": "#/definitions/Verification" },
           "description": "Verification information if available"
         }
       },
@@ -67,7 +67,7 @@
         },
         "verifications": {
           "type": "array",
-          "items": {"$ref": "#/definitions/Verification"},
+          "items": { "$ref": "#/definitions/Verification" },
           "description": "Verification information if available"
         }
       },
@@ -113,8 +113,8 @@
         "coordinates": {
           "type": "object",
           "properties": {
-            "latitude": {"type": "number"},
-            "longitude": {"type": "number"}
+            "latitude": { "type": "number" },
+            "longitude": { "type": "number" }
           },
           "required": ["latitude", "longitude"],
           "additionalProperties": false,
@@ -204,17 +204,17 @@
       "properties": {
         "brands": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": { "type": "string" },
           "description": "Preferred brands"
         },
         "colors": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": { "type": "string" },
           "description": "Preferred colors"
         },
         "sizes": {
           "type": "object",
-          "additionalProperties": {"$ref": "#/definitions/Size"},
+          "additionalProperties": { "$ref": "#/definitions/Size" },
           "description": "Size preferences for various categories"
         },
         "languages": {
@@ -236,9 +236,9 @@
         "communication": {
           "type": "object",
           "properties": {
-            "email": {"type": "boolean"},
-            "sms": {"type": "boolean"},
-            "push": {"type": "boolean"},
+            "email": { "type": "boolean" },
+            "sms": { "type": "boolean" },
+            "push": { "type": "boolean" },
             "frequency": {
               "type": "string",
               "enum": ["DAILY", "WEEKLY", "MONTHLY", "NEVER", "OTHER"]
@@ -257,7 +257,7 @@
         },
         "shippingMethods": {
           "type": "array",
-          "items": {"$ref": "#/definitions/ShippingMethod"},
+          "items": { "$ref": "#/definitions/ShippingMethod" },
           "description": "Shipping method preferences"
         },
         "flight": {
@@ -305,7 +305,7 @@
             },
             "airlines": {
               "type": "array",
-              "items": {"type": "string"},
+              "items": { "type": "string" },
               "description": "Preferred airlines"
             },
             "departureTimes": {
@@ -361,13 +361,7 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "enum": [
-                  "AISLE",
-                  "WINDOW",
-                  "MIDDLE",
-                  "EXIT_ROW",
-                  "OTHER"
-                ]
+                "enum": ["AISLE", "WINDOW", "MIDDLE", "EXIT_ROW", "OTHER"]
               },
               "description": "Preferred seat type"
             },
@@ -407,7 +401,7 @@
             },
             "specialRequests": {
               "type": "array",
-              "items": {"type": "string"},
+              "items": { "type": "string" },
               "description": "Special requests or instructions"
             }
           },
@@ -455,7 +449,7 @@
             },
             "brands": {
               "type": "array",
-              "items": {"type": "string"},
+              "items": { "type": "string" },
               "description": "Preferred hotel brands"
             },
             "roomTypes": {
@@ -571,7 +565,7 @@
             },
             "specialRequests": {
               "type": "array",
-              "items": {"type": "string"},
+              "items": { "type": "string" },
               "description": "Special requests or instructions"
             }
           },
@@ -593,7 +587,7 @@
             },
             "companies": {
               "type": "array",
-              "items": {"type": "string"},
+              "items": { "type": "string" },
               "description": "Preferred car rental companies"
             },
             "categories": {
@@ -721,7 +715,7 @@
             },
             "specialRequests": {
               "type": "array",
-              "items": {"type": "string"},
+              "items": { "type": "string" },
               "description": "Special requests or instructions"
             }
           },
@@ -770,7 +764,7 @@
         },
         "attributes": {
           "type": "object",
-          "additionalProperties": {"type": "string"},
+          "additionalProperties": { "type": "string" },
           "description": "Product attributes (size, color, etc.)"
         },
         "price": {
@@ -815,15 +809,12 @@
           "description": "Product reviews"
         }
       },
-      "anyOf": [
-        {"required": ["id"]},
-        {"required": ["sku"]}
-      ],
+      "anyOf": [{ "required": ["id"] }, { "required": ["sku"] }],
       "additionalProperties": false
     },
     "CartItem": {
       "allOf": [
-        {"$ref": "#/definitions/Item"},
+        { "$ref": "#/definitions/Item" },
         {
           "type": "object",
           "properties": {
@@ -847,7 +838,7 @@
       "properties": {
         "items": {
           "type": "array",
-          "items": {"$ref": "#/definitions/CartItem"},
+          "items": { "$ref": "#/definitions/CartItem" },
           "description": "Items in the cart"
         },
         "discounts": {
@@ -941,7 +932,14 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["CARD", "BANK_ACCOUNT", "DIGITAL_WALLET", "CRYPTOCURRENCY", "BNPL", "OTHER"],
+          "enum": [
+            "CARD",
+            "BANK_ACCOUNT",
+            "DIGITAL_WALLET",
+            "CRYPTOCURRENCY",
+            "BNPL",
+            "OTHER"
+          ],
           "description": "Type of payment method"
         },
         "card": {
@@ -1038,7 +1036,14 @@
           "properties": {
             "provider": {
               "type": "string",
-              "enum": ["KLARNA", "AFTERPAY", "AFFIRM", "SEZZLE", "ZIP", "OTHER"],
+              "enum": [
+                "KLARNA",
+                "AFTERPAY",
+                "AFFIRM",
+                "SEZZLE",
+                "ZIP",
+                "OTHER"
+              ],
               "description": "BNPL provider"
             },
             "token": {
@@ -1108,17 +1113,17 @@
         },
         "loyalties": {
           "type": "array",
-          "items": {"$ref": "#/definitions/Loyalty"},
+          "items": { "$ref": "#/definitions/Loyalty" },
           "description": "Loyalty programs"
         },
         "paymentMethods": {
           "type": "array",
-          "items": {"$ref": "#/definitions/PaymentMethod"},
+          "items": { "$ref": "#/definitions/PaymentMethod" },
           "description": "Payment methods"
         },
         "addresses": {
           "type": "array",
-          "items": {"$ref": "#/definitions/Address"},
+          "items": { "$ref": "#/definitions/Address" },
           "description": "User addresses"
         },
         "created": {
@@ -1133,7 +1138,13 @@
         },
         "status": {
           "type": "string",
-          "enum": ["ACTIVE", "SUSPENDED", "PENDING_VERIFICATION", "CLOSED", "OTHER"],
+          "enum": [
+            "ACTIVE",
+            "SUSPENDED",
+            "PENDING_VERIFICATION",
+            "CLOSED",
+            "OTHER"
+          ],
           "description": "Account status"
         },
         "type": {
@@ -1248,10 +1259,7 @@
         },
         "ipAddress": {
           "type": "string",
-          "oneOf": [
-            {"format": "ipv4"},
-            {"format": "ipv6"}
-          ],
+          "oneOf": [{ "format": "ipv4" }, { "format": "ipv6" }],
           "description": "IP address"
         },
         "userAgent": {
@@ -1276,7 +1284,14 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["CART_STATUS", "ORDER_STATUS", "PAYMENT_STATUS", "SHIPPING_STATUS", "DISPUTE_STATUS", "OTHER"]
+            "enum": [
+              "CART_STATUS",
+              "ORDER_STATUS",
+              "PAYMENT_STATUS",
+              "SHIPPING_STATUS",
+              "DISPUTE_STATUS",
+              "OTHER"
+            ]
           },
           "minItems": 1,
           "description": "Events this URL should receive"
@@ -1290,7 +1305,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "2025-08-21",
+      "const": "2025-08-27",
       "description": "Version of the schema"
     },
     "user": {
@@ -1307,12 +1322,12 @@
     },
     "items": {
       "type": "array",
-      "items": {"$ref": "#/definitions/Item"},
+      "items": { "$ref": "#/definitions/Item" },
       "description": "Standalone items (not necessarily in cart)"
     },
     "callbacks": {
       "type": "array",
-      "items": {"$ref": "#/definitions/Callback"},
+      "items": { "$ref": "#/definitions/Callback" },
       "description": "Callback URLs for async events"
     },
     "custom": {

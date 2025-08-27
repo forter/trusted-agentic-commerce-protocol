@@ -1,14 +1,14 @@
 import crypto from "node:crypto";
-import * as jose from 'jose';
+import * as jose from "jose";
 import {
   JWKSCache,
   fetchJWKSWithRetry,
   findSigningKey,
   getKeyType,
   getAlgorithmForKey,
-  publicKeyToJWK
+  publicKeyToJWK,
 } from "./utils.js";
-import { getRecipientUserAgent } from './version.js';
+import { getRecipientUserAgent } from "./version.js";
 
 /**
  * TACRecipient - Implements the recipient side of the Trusted Agentic Commerce Protocol
@@ -30,7 +30,7 @@ class TACRecipient {
     if (!options.privateKey) {
       throw new Error("privateKey is required in TACRecipient constructor");
     }
-    
+
     this.domain = options.domain;
     this.setPrivateKey(options.privateKey); // This sets both private and public keys
     this.jwksCache = new JWKSCache(options.cacheTimeout || 3600000);
@@ -51,17 +51,17 @@ class TACRecipient {
     }
 
     // Verify it's a supported key type
-    const supportedTypes = ['rsa', 'rsa-pss', 'ec'];
+    const supportedTypes = ["rsa", "rsa-pss", "ec"];
     if (!supportedTypes.includes(this.privateKey.asymmetricKeyType)) {
-      throw new Error('TAC Protocol requires RSA or EC (P-256/384/521) keys');
+      throw new Error("TAC Protocol requires RSA or EC (P-256/384/521) keys");
     }
 
     // Always derive public key from private key
     this.publicKey = crypto.createPublicKey(this.privateKey);
-    
+
     // Store key type and algorithm
     this.keyType = getKeyType(this.privateKey);
-    this.encryptionAlgorithm = getAlgorithmForKey(this.privateKey, 'enc');
+    this.encryptionAlgorithm = getAlgorithmForKey(this.privateKey, "enc");
   }
 
   /**
@@ -73,8 +73,8 @@ class TACRecipient {
     if (!this.publicKey) {
       throw new Error("No public key available. Load or set keys first.");
     }
-    const keyData = this.publicKey.export({ type: 'spki', format: 'der' });
-    return crypto.createHash('sha256').update(keyData).digest('base64url');
+    const keyData = this.publicKey.export({ type: "spki", format: "der" });
+    return crypto.createHash("sha256").update(keyData).digest("base64url");
   }
 
   /**
@@ -110,7 +110,7 @@ class TACRecipient {
     };
 
     if (!tacMessage) {
-      result.errors.push('Missing TAC-Protocol message');
+      result.errors.push("Missing TAC-Protocol message");
       return result;
     }
 
@@ -118,7 +118,7 @@ class TACRecipient {
     let decodedMessage;
     try {
       // Try to decode as base64 first
-      decodedMessage = Buffer.from(tacMessage, 'base64').toString('utf8');
+      decodedMessage = Buffer.from(tacMessage, "base64").toString("utf8");
       // Validate it's valid JSON
       JSON.parse(decodedMessage);
     } catch (e) {
@@ -132,43 +132,50 @@ class TACRecipient {
       try {
         message = JSON.parse(decodedMessage);
       } catch (e) {
-        throw new Error('Invalid TAC-Protocol message format');
+        throw new Error("Invalid TAC-Protocol message format");
       }
 
       // Validate message structure
       if (!message.recipients || !Array.isArray(message.recipients)) {
-        throw new Error('Invalid message format: missing recipients');
+        throw new Error("Invalid message format: missing recipients");
       }
 
-      result.recipients = message.recipients.map(r => r.kid || 'unknown');
+      result.recipients = message.recipients.map((r) => r.kid || "unknown");
 
       // Find our specific JWE
-      const ourRecipient = message.recipients.find(r => r.kid === this.domain);
+      const ourRecipient = message.recipients.find(
+        (r) => r.kid === this.domain
+      );
       if (!ourRecipient) {
         throw new Error(`Not a recipient: ${this.domain}`);
       }
 
       if (!this.privateKey) {
-        throw new Error('No private key available for decryption');
+        throw new Error("No private key available for decryption");
       }
 
       // Decrypt and verify our specific JWE in one step
       // jose.jwtDecrypt automatically verifies the JWT signature during decryption
-      const { payload } = await jose.jwtDecrypt(ourRecipient.jwe, this.privateKey);
-      
+      const { payload } = await jose.jwtDecrypt(
+        ourRecipient.jwe,
+        this.privateKey
+      );
+
       // Verify the issuer and audience claims
       if (!payload.iss) {
-        throw new Error('JWT missing issuer (iss) claim');
+        throw new Error("JWT missing issuer (iss) claim");
       }
-      
+
       if (payload.aud !== this.domain) {
-        throw new Error(`JWT audience mismatch: expected ${this.domain}, got ${payload.aud}`);
+        throw new Error(
+          `JWT audience mismatch: expected ${this.domain}, got ${payload.aud}`
+        );
       }
 
       // Additional signature verification by fetching sender's public key
       const agentDomain = payload.iss;
       const jwks = await this.fetchJWKS(agentDomain);
-      
+
       if (!jwks || jwks.length === 0) {
         throw new Error(`No public keys found for agent ${agentDomain}`);
       }
@@ -176,9 +183,9 @@ class TACRecipient {
       // Find appropriate signing key to verify this came from the right sender
       const signingKey = findSigningKey(jwks);
       if (!signingKey) {
-        throw new Error('No suitable signing key found');
+        throw new Error("No suitable signing key found");
       }
-      
+
       // The payload is already verified through JWE decryption, but we could
       // add additional verification here if needed for extra security
 
@@ -186,10 +193,9 @@ class TACRecipient {
       result.valid = true;
       result.issuer = payload.iss;
       result.expires = new Date(payload.exp * 1000);
-      
+
       // Get data specific to this recipient
       result.data = payload.data || null;
-
     } catch (error) {
       result.errors.push(error.message);
     }
@@ -207,23 +213,25 @@ class TACRecipient {
       // Decode base64 message
       let decodedMessage;
       try {
-        decodedMessage = Buffer.from(tacMessage, 'base64').toString('utf8');
+        decodedMessage = Buffer.from(tacMessage, "base64").toString("utf8");
         JSON.parse(decodedMessage);
       } catch (e) {
         decodedMessage = tacMessage;
       }
-      
+
       const message = JSON.parse(decodedMessage);
-      
+
       return {
-        version: message.version || '2025-08-21',
-        recipients: message.recipients ? message.recipients.map(r => r.kid || 'unknown') : [],
-        expires: null // Cannot determine without decryption
+        version: message.version || "2025-08-27",
+        recipients: message.recipients
+          ? message.recipients.map((r) => r.kid || "unknown")
+          : [],
+        expires: null, // Cannot determine without decryption
       };
     } catch (error) {
       return {
-        error: 'Invalid TAC-Protocol message format',
-        recipients: []
+        error: "Invalid TAC-Protocol message format",
+        recipients: [],
       };
     }
   }

@@ -1,14 +1,14 @@
-import crypto from 'node:crypto';
-import * as jose from 'jose';
+import crypto from "node:crypto";
+import * as jose from "jose";
 import {
   JWKSCache,
   fetchJWKSWithRetry,
   findEncryptionKey,
   getKeyType,
   getAlgorithmForKey,
-  publicKeyToJWK
-} from './utils.js';
-import { getSenderUserAgent } from './version.js';
+  publicKeyToJWK,
+} from "./utils.js";
+import { getSenderUserAgent } from "./version.js";
 
 /**
  * TACSender - Implements the sender side of the Trusted Agentic Commerce Protocol
@@ -26,12 +26,12 @@ class TACSender {
    */
   constructor(options = {}) {
     if (!options.domain) {
-      throw new Error('domain is required in TACSender constructor');
+      throw new Error("domain is required in TACSender constructor");
     }
     if (!options.privateKey) {
-      throw new Error('privateKey is required in TACSender constructor');
+      throw new Error("privateKey is required in TACSender constructor");
     }
-    
+
     this.domain = options.domain;
     this.setPrivateKey(options.privateKey); // This sets both private and public keys
     this.ttl = options.ttl || 3600; // 1 hour default
@@ -47,24 +47,24 @@ class TACSender {
    * @private
    */
   setPrivateKey(privateKey) {
-    if (typeof privateKey === 'string') {
+    if (typeof privateKey === "string") {
       this.privateKey = crypto.createPrivateKey(privateKey);
     } else {
       this.privateKey = privateKey;
     }
-    
+
     // Verify it's a supported key type
-    const supportedTypes = ['rsa', 'rsa-pss', 'ec'];
+    const supportedTypes = ["rsa", "rsa-pss", "ec"];
     if (!supportedTypes.includes(this.privateKey.asymmetricKeyType)) {
-      throw new Error('TAC Protocol requires RSA or EC (P-256/384/521) keys');
+      throw new Error("TAC Protocol requires RSA or EC (P-256/384/521) keys");
     }
-    
+
     // Always derive public key from private key
     this.publicKey = crypto.createPublicKey(this.privateKey);
-    
+
     // Store key type and algorithm
     this.keyType = getKeyType(this.privateKey);
-    this.signingAlgorithm = getAlgorithmForKey(this.privateKey, 'sig');
+    this.signingAlgorithm = getAlgorithmForKey(this.privateKey, "sig");
   }
 
   /**
@@ -74,10 +74,10 @@ class TACSender {
    */
   generateKeyId() {
     if (!this.publicKey) {
-      throw new Error('No public key available. Load or set keys first.');
+      throw new Error("No public key available. Load or set keys first.");
     }
-    const keyData = this.publicKey.export({ type: 'spki', format: 'der' });
-    return crypto.createHash('sha256').update(keyData).digest('base64url');
+    const keyData = this.publicKey.export({ type: "spki", format: "der" });
+    return crypto.createHash("sha256").update(keyData).digest("base64url");
   }
 
   /**
@@ -93,7 +93,7 @@ class TACSender {
       initialDelay: this.retryDelay,
       maxDelay: this.retryDelay * 30,
       userAgent: getSenderUserAgent(),
-      forceRefresh
+      forceRefresh,
     });
   }
 
@@ -131,11 +131,11 @@ class TACSender {
    */
   async generateTACMessage() {
     if (!this.privateKey) {
-      throw new Error('No private key available. Load or set keys first.');
+      throw new Error("No private key available. Load or set keys first.");
     }
 
     if (Object.keys(this.recipientData).length === 0) {
-      throw new Error('No recipient data added. Use addRecipientData() first.');
+      throw new Error("No recipient data added. Use addRecipientData() first.");
     }
 
     // Prepare recipient public keys map
@@ -146,15 +146,17 @@ class TACSender {
     for (const domain of Object.keys(this.recipientData)) {
       fetchPromises.push(
         this.fetchJWKS(domain)
-          .then(jwks => {
+          .then((jwks) => {
             const encryptionKey = findEncryptionKey(jwks);
             if (!encryptionKey) {
               throw new Error(`No suitable encryption key found for ${domain}`);
             }
             recipientPublicKeys[domain] = encryptionKey;
           })
-          .catch(error => {
-            throw new Error(`Failed to fetch keys for ${domain}: ${error.message}`);
+          .catch((error) => {
+            throw new Error(
+              `Failed to fetch keys for ${domain}: ${error.message}`
+            );
           })
       );
     }
@@ -172,7 +174,7 @@ class TACSender {
         exp: now + this.ttl,
         iat: now,
         aud: domain, // Audience claim for this specific recipient
-        data: this.recipientData[domain] // Only this recipient's data
+        data: this.recipientData[domain], // Only this recipient's data
       };
 
       // Sign the JWT using appropriate algorithm based on key type
@@ -182,10 +184,10 @@ class TACSender {
 
       // Encrypt the signed JWT for this specific recipient
       const publicKey = await jose.importJWK(jwk);
-      const algorithm = jwk.alg || 'RSA-OAEP-256';
-      
+      const algorithm = jwk.alg || "RSA-OAEP-256";
+
       const recipientJWE = await new jose.EncryptJWT(payload)
-        .setProtectedHeader({ alg: algorithm, enc: 'A256GCM' })
+        .setProtectedHeader({ alg: algorithm, enc: "A256GCM" })
         .setIssuedAt()
         .setExpirationTime(now + this.ttl)
         .setAudience(domain)
@@ -193,21 +195,21 @@ class TACSender {
 
       recipientJWEs.push({
         recipient: domain,
-        jwe: recipientJWE
+        jwe: recipientJWE,
       });
     }
 
     // Create multi-recipient container
     const multiRecipientMessage = {
-      version: '2025-08-21',
-      recipients: recipientJWEs.map(r => ({
+      version: "2025-08-27",
+      recipients: recipientJWEs.map((r) => ({
         kid: r.recipient,
-        jwe: r.jwe
-      }))
+        jwe: r.jwe,
+      })),
     };
 
     const messageJson = JSON.stringify(multiRecipientMessage);
-    return Buffer.from(messageJson).toString('base64');
+    return Buffer.from(messageJson).toString("base64");
   }
 
   /**

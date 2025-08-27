@@ -130,45 +130,72 @@ export default class TACSender {
       recipientPublicKeys[domain] = encryptionKey;
     }
 
-    // Create individual JWE for each recipient with their specific data
+    // Create the full payload containing all recipient data
     const now = Math.floor(Date.now() / 1000);
-    const recipientJWEs: Array<{ kid: string; jwe: string }> = [];
-
+    const fullPayload = {
+      iss: this.domain,
+      exp: now + this.ttl,
+      iat: now,
+      recipients: this.recipientData // All recipient data
+    };
+    
+    // Encrypt the full payload once
+    const encoder = new TextEncoder();
+    const plaintext = encoder.encode(JSON.stringify(fullPayload));
+    
+    // Generate a random CEK (Content Encryption Key)
+    const cek = crypto.randomBytes(32);
+    
+    // Generate IV for AES-GCM
+    const iv = crypto.randomBytes(12);
+    
+    // Create protected header FIRST (before encryption)
+    const protectedHeaderObj = { enc: 'A256GCM' };
+    const protectedHeader = Buffer.from(JSON.stringify(protectedHeaderObj)).toString('base64url');
+    
+    // Encrypt the plaintext with AES-GCM using protected header as AAD
+    const cipher = crypto.createCipheriv('aes-256-gcm', cek, iv);
+    cipher.setAAD(Buffer.from(protectedHeader, 'ascii'));
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    
+    // Encrypt the CEK for each recipient
+    const recipients: any[] = [];
     for (const [domain, jwk] of Object.entries(recipientPublicKeys)) {
-      // Create JWT payload with only this recipient's data
-      const payload = {
-        iss: this.domain,
-        exp: now + this.ttl,
-        iat: now,
-        aud: domain,  // Audience claim for this specific recipient
-        data: this.recipientData[domain]  // Only this recipient's data
-      };
-
-      // Encrypt the signed JWT for this specific recipient
       const publicKey = await jose.importJWK(jwk);
-      const algorithm = jwk.alg || 'RSA-OAEP-256';
       
-      const recipientJWE = await new jose.EncryptJWT(payload)
-        .setProtectedHeader({ alg: algorithm, enc: 'A256GCM' })
-        .setIssuedAt()
-        .setExpirationTime(now + this.ttl)
-        .setAudience(domain)
-        .encrypt(publicKey);
-
-      recipientJWEs.push({
-        kid: domain,
-        jwe: recipientJWE
+      // Encrypt the CEK with recipient's public key
+      const encryptedKey = crypto.publicEncrypt(
+        {
+          key: publicKey as any,
+          padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+          oaepHash: 'sha256'
+        },
+        cek
+      );
+      
+      recipients.push({
+        header: {
+          kid: domain,
+          alg: 'RSA-OAEP-256'
+        },
+        encrypted_key: encryptedKey.toString('base64url')
       });
     }
-
-    // Create multi-recipient container
-    const multiRecipientMessage = {
-      version: '2025-08-21',
-      recipients: recipientJWEs
+    
+    // Build the General JWE format
+    const generalJWE = {
+      protected: protectedHeader,
+      unprotected: {
+        v: '2025-08-27'
+      },
+      recipients,
+      iv: iv.toString('base64url'),
+      ciphertext: ciphertext.toString('base64url'),
+      tag: tag.toString('base64url')
     };
 
-    const messageJson = JSON.stringify(multiRecipientMessage);
-    return Buffer.from(messageJson).toString('base64');
+    return JSON.stringify(generalJWE);
   }
 
   /**
@@ -197,11 +224,14 @@ export default class TACSender {
   }
 
   /**
-   * Get public key as JWK for publishing (bidirectional use)
+   * Get public key as JWK for publishing (for signing)
    * @returns JWK representation of the public key
    * @throws If no public key is available
    */
   async getPublicJWK(): Promise<JWK> {
-    return await publicKeyToJWK(this.publicKey, this.generateKeyId());
+    const jwk = await publicKeyToJWK(this.publicKey, this.generateKeyId());
+    jwk.use = 'sig';
+    jwk.alg = 'RS256';
+    return jwk;
   }
 }

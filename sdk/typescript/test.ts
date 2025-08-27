@@ -135,7 +135,7 @@ describe('Trusted Agentic Commerce Protocol - TypeScript SDK', () => {
       assert.ok(jwe.iv);
       assert.ok(jwe.ciphertext);
       assert.ok(jwe.tag);
-      assert.strictEqual(jwe.unprotected.v, '2025-08-21');
+      assert.strictEqual(jwe.unprotected.v, '2025-08-27');
       
       // Should have recipient
       assert.strictEqual(jwe.recipients.length, 1);
@@ -201,7 +201,7 @@ describe('Trusted Agentic Commerce Protocol - TypeScript SDK', () => {
 
     it('should inspect TAC message without decryption', () => {
       const mockJWE = {
-        unprotected: { v: '2025-08-21' },
+        unprotected: { v: '2025-08-27' },
         recipients: [
           { header: { kid: 'merchant.com', alg: 'RSA-OAEP-256' } },
           { header: { kid: 'forter.com', alg: 'RSA-OAEP-256' } }
@@ -210,7 +210,7 @@ describe('Trusted Agentic Commerce Protocol - TypeScript SDK', () => {
 
       const info = TACRecipient.inspect(JSON.stringify(mockJWE));
       
-      assert.strictEqual(info.version, '2025-08-21');
+      assert.strictEqual(info.version, '2025-08-27');
       assert.deepStrictEqual(info.recipients, ['merchant.com', 'forter.com']);
     });
   });
@@ -281,6 +281,14 @@ describe('Trusted Agentic Commerce Protocol - TypeScript SDK', () => {
       // Both recipients should be able to process it
       const merchantResult = await merchant.processTACMessage(tacMessage);
       const forterResult = await forter.processTACMessage(tacMessage);
+
+      // Debug info if test fails
+      if (!merchantResult.valid) {
+        console.error('Merchant result errors:', merchantResult.errors);
+      }
+      if (!forterResult.valid) {
+        console.error('Forter result errors:', forterResult.errors);
+      }
 
       // Verify merchant result
       assert.strictEqual(merchantResult.valid, true);

@@ -2,7 +2,21 @@
 
 Python SDK implementing the Trusted Agentic Commerce Protocol for secure authentication and data encryption between AI agents, merchants and merchant vendors.
 
-This SDK follows the [TAP Protocol Schema.](../../schema/)
+This SDK follows the [TAC Protocol Schema.](../../schema/)
+
+## Getting Started
+  - [Features](#features)
+  - [Basic Usage](#basic-usage)
+  - [Advanced Usage](#advanced-usage)
+    - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
+    - [Sending to Multiple Recipients](#sending-to-multiple-recipients)
+    - [Setting Up Callbacks and Notifications](#setting-up-callbacks-and-notifications)
+  - [Flask Integration](#flask-integration)
+  - [FastAPI Integration](#fastapi-integration)
+  - [Manual JWKS Management](#manual-jwks-management)
+  - [Testing](#testing)
+  - [API Reference](#api-reference)
+  - [Requirements](#requirements)
 
 ## Features
 
@@ -14,9 +28,9 @@ This SDK follows the [TAP Protocol Schema.](../../schema/)
 - ✅ JWKS caching with TTL
 - ✅ Full async/await support
 
-## Quick Start
+## Basic Usage
 
-### For Senders (Typically AI Agents)
+### For Senders (AI Agents)
 
 ```python
 import os
@@ -27,43 +41,16 @@ agent_private_key = os.environ.get('AGENT_PRIVATE_KEY')  # RSA private key in PE
 
 # Initialize sender
 sender = TACSender(
-    domain='agent.example.com', # required (used as 'iss' in JWT)
-    private_key=agent_private_key, # required
-    ttl=3600, # JWT expiration in seconds (default: 3600)
-    cache_timeout=3600000 # JWKS cache timeout in ms (default: 1 hour)
+    domain='agent.example.com',  # your agent domain (used as 'iss' in JWT)
+    private_key=agent_private_key
 )
 
-# Add data for specific recipients
-await sender.add_recipient_data('merchant.com', {
-    'session': {
-        'consent': 'Buy Nike Air Jordan Retro shoes under $200'
-    },
-    'user': {
-        'email': {
-            'address': 'john.doe@example.com',
-            'verifications': [
-                {
-                    'method': 'EMAIL_OTP',
-                    'at': '2025-01-15T10:30:00Z'
-                }
-            ]
-        }
-    }
-})
-
-await sender.add_recipient_data('forter.com', {
-    'session': {
-        'ip_address': '192.168.1.1',
-        'user_agent': 'MyAgent/1.0',
-        'forter_token': 'ftr_xyz'
-    }
-})
-
-# Or set all recipients at once
+# Set data for a single recipient (merchant.com)
 await sender.set_recipients_data({
     'merchant.com': {
         'session': {
-            'consent': 'Buy Nike Air Jordan Retro shoes under $200'
+            'consent': 'Buy Nike Air Jordan Retro shoes under $200',
+            'channel': 'CHAT'
         },
         'user': {
             'email': {
@@ -76,34 +63,23 @@ await sender.set_recipients_data({
                 ]
             }
         }
-    },
-    'forter.com': {
-        'session': {
-            'ip_address': '192.168.1.1',
-            'user_agent': 'MyAgent/1.0',
-            'forter_token': 'ftr_xyz'
-        }
     }
 })
 
-# Generate TAC-Protocol message with signed JWT and encrypted data
+# Generate TAC-Protocol message
 tac_message = await sender.generate_tac_message()
 
-# Make the authenticated request (message can be used as header or in body)
+# Make authenticated request to merchant
 import aiohttp
 async with aiohttp.ClientSession() as session:
     async with session.post(
         'https://merchant.com/api/purchase',
-        headers={
-            'TAC-Protocol': tac_message,
-            'Content-Type': 'application/json'
-        },
-        json={'product_id': 'nike_air_jordan'}
+        headers={'TAC-Protocol': tac_message}
     ) as response:
         result = await response.json()
 ```
 
-### For Recipients (Typically Merchants or Merchant Vendors)
+### For Recipients (Merchants)
 
 ```python
 import os
@@ -133,10 +109,181 @@ if result['valid']:
         print(f"User email: {result['data']['user']['email']['address']}")
         print(f"Session consent: {result['data']['session']['consent']}")
     
-    # You can also see which other recipients received data
-    print(f"All recipients: {result['recipients']}")
+    # Process the purchase...
 else:
     print(f"Authentication failed: {result['errors']}")
+```
+
+## Advanced Usage
+
+### Collecting Vendor-Specific Data
+
+Many security and fraud prevention vendors require specific tokens or identifiers. Here's how to collect and pass vendor-specific data:
+
+#### Example: Forter Integration
+
+```python
+# Step 1: Direct user to a web page that includes Forter's JavaScript SDK
+# The page captures the Forter token client-side
+
+# Step 2: On your server, collect the Forter token from cookies
+# along with IP address and user agent from the request
+
+sender = TACSender(
+    domain='agent.example.com',
+    private_key=agent_private_key
+)
+
+await sender.set_recipients_data({
+    'merchant.com': {
+        'user': {
+            'preferences': {
+                'brands': ['Nike', 'On', 'Asics'],
+                'sizes': {
+                    'shoe': {
+                        'value': 42,
+                        'unit': 'EU',
+                        'method': 'HISTORICAL_PURCHASE',
+                        'at': '2025-06-10T10:00:00Z'
+                    }
+                }
+            }
+        }
+    },
+    'forter.com': {
+        'session': {
+            # Pass Forter-specific data
+            'forterToken': request.cookies.get('forterToken'),  # captured from cookie
+            'ipAddress': request.remote_addr,
+            'userAgent': request.headers.get('User-Agent')
+        }
+    }
+})
+
+tac_message = await sender.generate_tac_message()
+```
+
+### Sending to Multiple Recipients
+
+Use `add_recipient_data` to incrementally add recipients with their specific data:
+
+```python
+sender = TACSender(
+    domain='agent.example.com',
+    private_key=agent_private_key
+)
+
+# Add merchant with order details
+await sender.add_recipient_data('merchant.com', {
+    'order': {
+        'cart': [
+            {
+                'sku': 'AJ1-RETRO-HIGH-BRD-10.5',
+                'name': 'Nike Air Jordan 1 Retro High',
+                'quantity': 1,
+                'price': 170.00
+            },
+            {
+                'sku': 'AJ-LACES-RED-54',
+                'name': 'Air Jordan Premium Replacement Laces - Red',
+                'quantity': 1,
+                'price': 15.00
+            }
+        ],
+        'shippingAddress': {
+            'name': 'Jane Doe',
+            'line1': '456 Main St',
+            'city': 'Springfield',
+            'region': 'IL',
+            'postal': '62704',
+            'country': 'US',
+            'type': 'RESIDENTIAL'
+        }
+    }
+})
+
+# Add fraud detection vendor with session data
+await sender.add_recipient_data('forter.com', {
+    'session': {
+        'forterToken': 'ftr_xyz'
+    }
+})
+
+# Add payment processor with payment method
+await sender.add_recipient_data('stripe.com', {
+    'order': {
+        'paymentMethod': {
+            'type': 'CARD',
+            'card': {
+                'token': 'tok_visa_4242',
+                'brand': 'VISA',
+                'last4': 4242,
+                'expiryMonth': 12,
+                'expiryYear': 2026
+            }
+        }
+    }
+})
+
+# Generate single message with all encrypted recipient data
+tac_message = await sender.generate_tac_message()
+```
+
+### Setting Up Callbacks and Notifications
+
+The TAC Protocol supports bidirectional notifications - agents can receive webhooks while users get SMS updates:
+
+```python
+sender = TACSender(
+    domain='agent.example.com',
+    private_key=agent_private_key
+)
+
+await sender.set_recipients_data({
+    'merchant.com': {
+        'user': {
+            'phone': {
+                'number': '+14155550123',
+                'type': 'MOBILE',
+                'verifications': [{
+                    'method': 'SMS_OTP',
+                    'at': '2025-07-30T18:20:00Z'
+                }]
+            }
+        },
+        'order': {
+            'cart': [{
+                'id': 'nike-123',
+                'name': 'Air Jordan 1',
+                'quantity': 1,
+                'price': 189.99
+            }]
+        },
+        # Bidirectional notifications
+        'notifications': [
+            # Webhook for the AI agent to receive updates
+            {
+                'events': ['ORDER_STATUS', 'PAYMENT_STATUS'],
+                'type': 'URL',
+                'target': 'https://agent.example.com/webhooks'
+            },
+            # SMS notification for the end user
+            {
+                'events': ['SHIPPING_STATUS'],
+                'type': 'SMS',
+                'target': '+14155551234'  # User's phone number
+            },
+            # Slack notification for fraud team
+            {
+                'events': ['DISPUTE_STATUS'],
+                'type': 'SLACK',
+                'target': 'https://hooks.slack.com/services/T00000000/B00000000/XXXX'
+            }
+        ]
+    }
+})
+
+tac_message = await sender.generate_tac_message()
 ```
 
 ## Flask Integration

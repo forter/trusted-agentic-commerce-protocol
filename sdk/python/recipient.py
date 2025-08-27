@@ -259,7 +259,7 @@ class TACRecipient:
             jwe_data = json.loads(decoded_message)
             
             return {
-                'version': jwe_data.get('version', '2025-08-21'),
+                'version': jwe_data.get('version', '2025-08-27'),
                 'recipients': [r.get('kid', 'unknown') for r in jwe_data.get('recipients', [])],
                 'expires': None  # Cannot get expiry without decryption
             }

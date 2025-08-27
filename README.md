@@ -6,7 +6,7 @@ A secure authentication and data encryption protocol for AI agents, merchants an
 - **JSON Web Encryption (JWE)** for sensitive data protection
 - **JSON Web Key Sets (JWKS)** for key distribution
 
-🎉 **[Read the full announcement on Forter Tech Blog](https://www.forter.com/blog/trusted-agentic-commerce-protocol/)**
+🎉 **[Read the full announcement on Forter Blog](https://www.forter.com/blog/proposing-a-trusted-agentic-commerce-protocol/)**
 
 ## Key Generation and Publishing
 

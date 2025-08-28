@@ -1,11 +1,13 @@
 # Trusted Agentic Commerce Protocol SDK for Python
 
-Python SDK implementing the Trusted Agentic Commerce Protocol for secure authentication and data encryption between AI agents, merchants and merchant vendors.
+Python SDK implementing the [Trusted Agentic Commerce Protocol,](https://www.forter.com/blog/proposing-a-trusted-agentic-commerce-protocol/) allowing merchants and agent developers to:
 
-This SDK follows the [TAC Protocol Schema.](../../schema/)
+- ✅ Authenticate each other: verify the agent's identity and its relationship to the customer behind it
+- ✅ Maintain rich customer data: reduce data losses experienced by merchants and increase agents approval rate
+- ✅ Improve user experience: create personalized, secure and frictionless checkout experience
+- ✅ Prevent fraud: differentiates between legitimate agentic activity and fraud attempts
 
 ## Getting Started
-  - [Features](#features)
   - [Basic Usage](#basic-usage)
   - [Advanced Usage](#advanced-usage)
     - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
@@ -16,17 +18,9 @@ This SDK follows the [TAC Protocol Schema.](../../schema/)
   - [Manual JWKS Management](#manual-jwks-management)
   - [Testing](#testing)
   - [API Reference](#api-reference)
+  - [Schema](../../schema/)
+  - [Features](#features)
   - [Requirements](#requirements)
-
-## Features
-
-- ✅ JWT-based authentication with RSA signatures
-- ✅ Multi-recipient JWE encryption using General JSON format
-- ✅ JWKS key distribution at `/.well-known/jwks.json`
-- ✅ Automatic key rotation support
-- ✅ Request retry with exponential backoff
-- ✅ JWKS caching with TTL
-- ✅ Full async/await support
 
 ## Basic Usage
 
@@ -486,6 +480,16 @@ python test.py
 
 #### Static Methods
 - `TACRecipient.inspect(tac_message)` - Get message info without decryption
+
+## Features
+
+- JWT-based authentication with RSA signatures
+- Multi-recipient JWE encryption using General JSON format
+- JWKS key distribution at `/.well-known/jwks.json`
+- Automatic key rotation support
+- Request retry with exponential backoff
+- JWKS caching with TTL
+- Full async support
 
 ## Requirements
 

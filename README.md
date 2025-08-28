@@ -6,7 +6,14 @@ A secure authentication and data encryption protocol for AI agents, merchants an
 - **JSON Web Encryption (JWE)** for sensitive data protection
 - **JSON Web Key Sets (JWKS)** for key distribution
 
-🎉 **[Read the full announcement on Forter Blog](https://www.forter.com/blog/proposing-a-trusted-agentic-commerce-protocol/)**
+🎉 **[Read the announcement on Forter Blog](https://www.forter.com/blog/proposing-a-trusted-agentic-commerce-protocol/)**
+
+## SDK Libraries
+
+- [JavaScript](sdk/javascript/)
+- [TypeScript](sdk/typescript/)
+- [Python](sdk/python/)
+- More coming soon
 
 ## Key Generation and Publishing
 
@@ -89,41 +96,38 @@ Publish your public keys at `https://your-domain.com/.well-known/jwks.json`:
 
 ### Sender
 
-Typically AI agent that makes requests on behalf of users. Sender:
+Typically AI agent:
 
+- Makes requests on behalf of users
 - Signs JWTs to prove identity
 - Encrypts sensitive user data for specific recipients
 - Publishes public signing keys via JWKS
 
 ### Recipient
 
-Typically merchant or merchant vendor that receives authenticated requests. Recipient:
+Typically Merchant and/or Merchant Vendor:
 
+- Receives authenticated requests
 - Verifies JWT signatures from senders
 - Decrypts user data encrypted for them
 - Publishes public encryption keys via JWKS
 
 ## Protocol Flow
 
-1. **Sender prepares request**: Encrypts user data for specific recipients
-2. **Sender signs JWT**: Creates signed JWT with issuer and expiration
-3. **Sender encrypts JWT**: Encrypts signed JWT for multiple recipients using JWE
-4. **Sender sends request**: Includes TAC-Protocol message in header or body
-5. **Recipient decrypts**: Decrypts JWE to get signed JWT
-6. **Recipient verifies**: Verifies JWT signature using sender's public key
-7. **Recipient processes**: Handles authenticated request with decrypted data
+<p align="center">
+  <a href="https://www.forter.com/wp-content/uploads/2025/08/forter-trusted-agentic-commerce-protocol.png" target="_blank">
+    <img src="https://www.forter.com/wp-content/uploads/2025/08/forter-trusted-agentic-commerce-protocol.png" alt="Trusted Agentic Commerce Protocol Diagram" width="600"/>
+  </a>
+</p>
 
-## SDK Libraries
+## Key Benefits
 
-Ready-to-use SDK implementations:
-
-- [JavaScript](sdk/javascript/) - Full implementation with examples
-- [TypeScript](sdk/typescript/) - Full TypeScript implementation with type safety
-- [Python](sdk/python/) - Full implementation with Flask/FastAPI examples
-- PHP (coming soon)
-- Java (coming soon)
-- Go (coming soon)
-- .NET (coming soon)
+|         | **Without the protocol**                                                                                                                                         | **With the protocol**                                                                                                                                           |
+|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Agent Developers**   | Your legitimate agent is blocked by aggressive merchant filters or fraudulent usage by other users, leading to failed tasks and frustrated users             | Your agent is recognized and trusted by merchant sites, leading to near-100% success rates for login and checkout and higher user satisfaction              |
+| **Merchants**          | You block all bot traffic to protect your site because you’re unsure what is good or bad, losing out on potential sales and the potential of agentic commerce| You can distinguish between trusted agents and bot threats, enabling you to process more sales and offer personalized experiences based on verified user data|
+| **Merchant vendors**   | You struggle to evaluate agent-driven transactions because you can’t distinguish legitimate agents from malicious bots, leading to missed revenue opportunities and strained merchant relationships | You receive verifiable identity and intent data from recognized agents, enabling precise risk assessments, fewer false declines, and stronger merchant trust in your services |
+| **End-users**          | Your personal assistant fails to book a flight because it can’t complete a login, gets hit with a CAPTCHA or is blocked as "suspicious"                      | Your agent acts as a true extension of yourself, recognized and accepted by merchants, with your data and preferences respected                             |
 
 ## Security Best Practices
 

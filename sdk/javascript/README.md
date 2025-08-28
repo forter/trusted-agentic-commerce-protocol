@@ -1,11 +1,13 @@
 # Trusted Agentic Commerce Protocol JavaScript SDK
 
-JavaScript SDK implementing the Trusted Agentic Commerce Protocol for secure authentication and data encryption between AI agents, merchants and merchant vendors.
+JavaScript SDK implementing the [Trusted Agentic Commerce Protocol,](https://www.forter.com/blog/proposing-a-trusted-agentic-commerce-protocol/) allowing merchants and agent developers to:
 
-This SDK follows the [Trusted Agentic Commerce Schema.](../../schema/)
+- ✅ Authenticate each other: verify the agent's identity and its relationship to the customer behind it
+- ✅ Maintain rich customer data: reduce data losses experienced by merchants and increase agents approval rate
+- ✅ Improve user experience: create personalized, secure and frictionless checkout experience
+- ✅ Prevent fraud: differentiates between legitimate agentic activity and fraud attempts
 
 ## Getting Started
-  - [Features](#features)
   - [Basic Usage](#basic-usage)
   - [Advanced Usage](#advanced-usage)
     - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
@@ -15,18 +17,10 @@ This SDK follows the [Trusted Agentic Commerce Schema.](../../schema/)
   - [Manual JWKS Management](#manual-jwks-management)
   - [Testing](#testing)
   - [API Reference](#api-reference)
+  - [Schema](../../schema/)
+  - [Features](#features)
   - [Requirements](#requirements)
-
-## Features
-
-- ✅ JWT-based authentication with RSA or EC signatures
-- ✅ Multi-recipient JWE encryption using General JSON format
-- ✅ JWKS key distribution at `/.well-known/jwks.json`
-- ✅ Automatic key rotation support
-- ✅ Request retry with exponential backoff
-- ✅ JWKS caching with TTL
-- ✅ Full TypeScript-compatible exports
-
+  
 ## Basic Usage
 
 ### For Senders (AI Agents)
@@ -137,8 +131,8 @@ await sender.setRecipientsData({
         brands: ['Nike', 'On', 'Asics'],
         sizes: {
           shoe: {
-            value: 42,
-            unit: 'EU',
+            value: 9,
+            unit: 'US',
             method: 'HISTORICAL_PURCHASE',
             at: '2025-06-10T10:00:00Z'
           }
@@ -173,7 +167,7 @@ await sender.addRecipientData('merchant.com', {
   order: {
     cart: [
       {
-        sku: 'AJ1-RETRO-HIGH-BRD-10.5',
+        sku: 'AJ1-RETRO-HIGH-BRD-9',
         name: 'Nike Air Jordan 1 Retro High',
         quantity: 1,
         price: 170.00
@@ -413,6 +407,16 @@ npm run test:watch
 
 #### Static Methods
 - `TACRecipient.inspect(tacMessage)` - Get message info without decryption
+
+## Features
+
+- JWT-based authentication with RSA signatures
+- Multi-recipient JWE encryption using General JSON format
+- JWKS key distribution at `/.well-known/jwks.json`
+- Automatic key rotation support
+- Request retry with exponential backoff
+- JWKS caching with TTL
+- Full async support
 
 ## Requirements
 

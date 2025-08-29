@@ -3,11 +3,11 @@
 A secure authentication and data encryption protocol that allows AI agents, merchants and merchant vendors:
 
 - ✅ Authenticate each other: verify the agent's identity and its relationship to the customer behind it
-- ✅ Maintain rich customer data: reduce data losses experienced by merchants and increase agents approval rate
+- ✅ Maintain rich customer data: reduce data losses and increase agents approval rate
 - ✅ Improve user experience: create personalized, secure and frictionless checkout experience
 - ✅ Prevent fraud: differentiates between legitimate agentic activity and fraud attempts
 
-🎉 **[Read the announcement on Forter Blog](https://www.forter.com/blog/)**
+🎉 **[Read the announcement on Forter Blog](https://www.forter.com/blog/trusted-agentic-commerce-protocol/)**
 
 ## SDK Libraries
 

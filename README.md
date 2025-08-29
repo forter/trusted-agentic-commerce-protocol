@@ -1,12 +1,13 @@
 # Trusted Agentic Commerce Protocol
 
-A secure authentication and data encryption protocol for AI agents, merchants and merchant vendors. It combines:
+A secure authentication and data encryption protocol that allows AI agents, merchants and merchant vendors:
 
-- **JWT with digital signatures** for request authentication (RSA or EC)
-- **JSON Web Encryption (JWE)** for sensitive data protection
-- **JSON Web Key Sets (JWKS)** for key distribution
+- ✅ Authenticate each other: verify the agent's identity and its relationship to the customer behind it
+- ✅ Maintain rich customer data: reduce data losses experienced by merchants and increase agents approval rate
+- ✅ Improve user experience: create personalized, secure and frictionless checkout experience
+- ✅ Prevent fraud: differentiates between legitimate agentic activity and fraud attempts
 
-🎉 **[Read the announcement on Forter Blog](https://www.forter.com/blog/proposing-a-trusted-agentic-commerce-protocol/)**
+🎉 **[Read the announcement on Forter Blog](https://www.forter.com/blog/)**
 
 ## SDK Libraries
 
@@ -17,7 +18,13 @@ A secure authentication and data encryption protocol for AI agents, merchants an
 
 ## Key Generation and Publishing
 
-#### Option 1: RSA Keys (Default - Recommended for compatibility)
+Trusted Agentic Commerce Protocol relies on:
+
+- **JWT with digital signatures** for request authentication (RSA or EC)
+- **JSON Web Encryption (JWE)** for sensitive data protection
+- **JSON Web Key Sets (JWKS)** for key distribution
+
+#### Option 1: Generate RSA Keys (Default - Recommended for compatibility)
 
 ```bash
 # Generate RSA key pair
@@ -34,7 +41,7 @@ openssl rsa -in public.pem -pubin -outform DER 2>/dev/null | \
   openssl dgst -sha256 -binary | base64 | tr -d '=' | tr '/+' '_-'
 ```
 
-#### Option 2: Elliptic Curve Keys (Faster, smaller keys)
+#### Option 2: Generate Elliptic Curve Keys (Faster, smaller keys)
 
 ```bash
 # Generate EC key pair (P-256 curve)

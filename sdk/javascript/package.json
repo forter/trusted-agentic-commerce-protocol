@@ -1,6 +1,6 @@
 {
   "name": "trusted-agentic-commerce-protocol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "JavaScript SDK implementing the Trusted Agentic Commerce Protocol for secure authentication and data encryption between AI agents, merchants and merchant vendors.",
   "type": "module",
   "main": "src/index.js",

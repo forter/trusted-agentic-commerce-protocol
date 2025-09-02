@@ -3,13 +3,34 @@
   "version": "0.1.0",
   "description": "JavaScript SDK implementing the Trusted Agentic Commerce Protocol for secure authentication and data encryption between AI agents, merchants and merchant vendors.",
   "type": "module",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
-    "test": "node --test test.js",
-    "test:watch": "node --test --watch test.js"
+    "test": "node tests/test-runner.js",
+    "test:all": "node tests/test-runner.js",
+    "test:crypto": "node tests/test-runner.js crypto",
+    "test:cache": "node tests/test-runner.js cache",
+    "test:network": "node tests/test-runner.js network",
+    "test:sender": "node tests/test-runner.js sender",
+    "test:recipient": "node tests/test-runner.js recipient",
+    "test:errors": "node tests/test-runner.js errors",
+    "test:integration": "node tests/test-runner.js integration",
+    "test:utils": "node tests/test-runner.js utils",
+    "test:watch": "node --test --watch tests/*.test.js",
+    "test:list": "node tests/test-runner.js list",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "fix": "npm run format && npm run lint:fix"
   },
   "dependencies": {
     "jose": "^5.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^8.57.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.6.2"
   },
   "keywords": [
     "trusted-agentic-commerce",

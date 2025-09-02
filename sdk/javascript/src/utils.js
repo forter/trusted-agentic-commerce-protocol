@@ -1,4 +1,16 @@
-import { PROTOCOL_VERSION, SDK_VERSION, SDK_LANGUAGE } from './version.js';
+import { SCHEMA_VERSION, SDK_VERSION, SDK_LANGUAGE } from './version.js';
+import { TACNetworkError, TACCryptoError, TACErrorCodes } from './errors.js';
+
+// Node.js globals
+/* global AbortController */
+
+/**
+ * Get User-Agent string
+ * @returns User-Agent string
+ */
+export function getUserAgent() {
+  return `TAC-Protocol/${SCHEMA_VERSION} (${SDK_LANGUAGE}/${SDK_VERSION})`;
+}
 
 /**
  * JWKS cache with TTL and pending request deduplication
@@ -36,17 +48,15 @@ export class JWKSCache {
     // 1. Default cache timeout
     // 2. Earliest key expiration (if any keys have exp field)
     let cacheExpires = Date.now() + this.timeout;
-    
+
     // Check if any keys have exp field and adjust cache expiry
-    const keyExpirations = keys
-      .filter(k => k.exp)
-      .map(k => k.exp * 1000); // Convert to milliseconds
-    
+    const keyExpirations = keys.filter(k => k.exp).map(k => k.exp * 1000); // Convert to milliseconds
+
     if (keyExpirations.length > 0) {
       const earliestExpiry = Math.min(...keyExpirations);
       cacheExpires = Math.min(cacheExpires, earliestExpiry);
     }
-    
+
     this.cache.set(domain, {
       keys,
       expires: cacheExpires
@@ -104,9 +114,10 @@ export async function fetchJWKSWithRetry(domain, options = {}) {
   const {
     cache = null,
     maxRetries = 3,
-    initialDelay = 1000,
+    retryDelay = 1000,
     maxDelay = 30000,
-    userAgent = `TAC-Protocol/${PROTOCOL_VERSION} (${SDK_LANGUAGE}/${SDK_VERSION})`,
+    timeout = 10000,
+    userAgent = getUserAgent(),
     forceRefresh = false
   } = options;
 
@@ -125,31 +136,43 @@ export async function fetchJWKSWithRetry(domain, options = {}) {
   const fetchPromise = (async () => {
     const url = `https://${domain}/.well-known/jwks.json`;
     let lastError;
-    let delay = initialDelay;
+    let delay = retryDelay;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
 
         const response = await fetch(url, {
           signal: controller.signal,
           headers: {
             'User-Agent': userAgent,
-            'Accept': 'application/json'
+            Accept: 'application/json'
           }
         });
 
-        clearTimeout(timeout);
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          throw new TACNetworkError(`HTTP ${response.status}: ${response.statusText}`, TACErrorCodes.HTTP_ERROR);
         }
 
-        const jwks = await response.json();
+        let jwks;
+        try {
+          jwks = await response.json();
+        } catch (parseError) {
+          throw new TACNetworkError(
+            `Failed to parse JWKS response: ${parseError.message}`,
+            TACErrorCodes.JWKS_PARSE_ERROR
+          );
+        }
 
-        if (!jwks.keys || !Array.isArray(jwks.keys)) {
-          throw new Error('Invalid JWKS format');
+        if (!jwks.keys) {
+          throw new TACNetworkError('Invalid JWKS response: missing keys array', TACErrorCodes.JWKS_INVALID_FORMAT);
+        }
+
+        if (!Array.isArray(jwks.keys)) {
+          throw new TACNetworkError('Invalid JWKS response: keys is not an array', TACErrorCodes.JWKS_INVALID_FORMAT);
         }
 
         if (cache) {
@@ -158,11 +181,15 @@ export async function fetchJWKSWithRetry(domain, options = {}) {
         }
 
         return jwks.keys;
-
       } catch (error) {
-        lastError = error;
+        // Transform AbortError to more descriptive timeout error
+        if (error.name === 'AbortError') {
+          lastError = new TACNetworkError(`Request timeout after ${timeout}ms`, TACErrorCodes.NETWORK_TIMEOUT);
+        } else {
+          lastError = error;
+        }
 
-        if (attempt < maxRetries) {
+        if (attempt <= maxRetries) {
           await new Promise(resolve => setTimeout(resolve, delay));
           delay = Math.min(delay * 2, maxDelay);
         }
@@ -173,7 +200,10 @@ export async function fetchJWKSWithRetry(domain, options = {}) {
       cache.deletePendingFetch(domain);
     }
 
-    throw new Error(`Failed to fetch JWKS from ${domain} after ${maxRetries} attempts: ${lastError.message}`);
+    throw new TACNetworkError(
+      `Failed to fetch JWKS from ${domain} after ${maxRetries + 1} attempts: ${lastError.message}`,
+      TACErrorCodes.JWKS_FETCH_FAILED
+    );
   })();
 
   if (cache) {
@@ -190,17 +220,17 @@ export async function fetchJWKSWithRetry(domain, options = {}) {
  */
 function isKeyValid(key) {
   const now = Math.floor(Date.now() / 1000);
-  
+
   // Check not before (nbf)
   if (key.nbf && now < key.nbf) {
     return false;
   }
-  
+
   // Check expiration (exp)
   if (key.exp && now >= key.exp) {
     return false;
   }
-  
+
   return true;
 }
 
@@ -211,11 +241,15 @@ function isKeyValid(key) {
  */
 export function getKeyType(key) {
   const keyType = key.asymmetricKeyType;
-  
-  if (keyType === 'rsa' || keyType === 'rsa-pss') return 'RSA';
-  if (keyType === 'ec') return 'EC';
-  
-  throw new Error(`Unsupported key type: ${keyType}`);
+
+  if (keyType === 'rsa' || keyType === 'rsa-pss') {
+    return 'RSA';
+  }
+  if (keyType === 'ec') {
+    return 'EC';
+  }
+
+  throw new TACCryptoError(`Unsupported key type: ${keyType}`, TACErrorCodes.UNSUPPORTED_KEY_TYPE);
 }
 
 /**
@@ -227,7 +261,7 @@ export function getKeyType(key) {
 export function getAlgorithmForKey(key, use = 'sig') {
   const keyType = getKeyType(key);
   const keyDetail = key.asymmetricKeyDetails;
-  
+
   if (keyType === 'RSA') {
     return use === 'sig' ? 'RS256' : 'RSA-OAEP-256';
   } else if (keyType === 'EC') {
@@ -251,8 +285,8 @@ export function getAlgorithmForKey(key, use = 'sig') {
       return 'ECDH-ES+A256KW';
     }
   }
-  
-  throw new Error(`Unsupported key type: ${keyType}`);
+
+  throw new TACCryptoError(`Unsupported key type: ${keyType}`, TACErrorCodes.UNSUPPORTED_KEY_TYPE);
 }
 
 /**
@@ -263,33 +297,35 @@ export function getAlgorithmForKey(key, use = 'sig') {
 export function findEncryptionKey(keys) {
   // Filter valid keys (supported types for bidirectional use)
   const validKeys = keys.filter(k => isKeyValid(k) && ['RSA', 'EC'].includes(k.kty));
-  
+
   // Prefer RSA keys for compatibility, then EC
   const keyTypes = ['RSA', 'EC'];
-  
+
   for (const keyType of keyTypes) {
     const typeKeys = validKeys.filter(k => k.kty === keyType);
-    
+
     for (const key of typeKeys) {
       // Skip keys that are explicitly marked as signature-only
-      if (key.use === 'sig') continue;
-      
+      if (key.use === 'sig') {
+        continue;
+      }
+
       // Accept keys with no 'use' field (dual-purpose) or 'enc' use
       if (!key.use || key.use === 'enc') {
         // Return key with appropriate encryption algorithm
         const encryptionKey = { ...key };
-        
+
         if (key.kty === 'RSA') {
           encryptionKey.alg = 'RSA-OAEP-256';
         } else if (key.kty === 'EC') {
           encryptionKey.alg = 'ECDH-ES+A256KW';
         }
-        
+
         return encryptionKey;
       }
     }
   }
-  
+
   return undefined;
 }
 
@@ -302,29 +338,29 @@ export function findEncryptionKey(keys) {
 export function findSigningKey(keys, keyId = null) {
   // Filter valid keys (supported types)
   const validKeys = keys.filter(k => isKeyValid(k) && ['RSA', 'EC'].includes(k.kty));
-  
+
   if (keyId) {
     const key = validKeys.find(k => k.kid === keyId);
-    if (key) return key;
-  }
-  
-  // Look for appropriate signing key by type
-  const signingAlgs = {
-    'RSA': ['RS256', 'RS384', 'RS512'],
-    'EC': ['ES256', 'ES384', 'ES512']
-  };
-  
-  for (const [kty, algs] of Object.entries(signingAlgs)) {
-    for (const alg of algs) {
-      const key = validKeys.find(k => 
-        k.kty === kty &&
-        (k.use === 'sig' || !k.use) &&
-        (k.alg === alg || !k.alg)
-      );
-      if (key) return key;
+    if (key) {
+      return key;
     }
   }
-  
+
+  // Look for appropriate signing key by type
+  const signingAlgs = {
+    RSA: ['RS256', 'RS384', 'RS512'],
+    EC: ['ES256', 'ES384', 'ES512']
+  };
+
+  for (const [kty, algs] of Object.entries(signingAlgs)) {
+    for (const alg of algs) {
+      const key = validKeys.find(k => k.kty === kty && (k.use === 'sig' || !k.use) && (k.alg === alg || !k.alg));
+      if (key) {
+        return key;
+      }
+    }
+  }
+
   // Return any signing key
   return validKeys.find(k => k.use === 'sig' || !k.use);
 }
@@ -337,14 +373,19 @@ export function findSigningKey(keys, keyId = null) {
  */
 export async function publicKeyToJWK(publicKey, keyId = null) {
   if (!publicKey) {
-    throw new Error('No public key provided');
+    throw new TACCryptoError('No public key provided', TACErrorCodes.NO_PUBLIC_KEY);
   }
-  
+
   const jose = await import('jose');
-  
+
   // Use jose to export JWK
-  const jwk = await jose.exportJWK(publicKey);
-  
+  let jwk;
+  try {
+    jwk = await jose.exportJWK(publicKey);
+  } catch (error) {
+    throw new TACCryptoError(`Failed to export public key to JWK: ${error.message}`, TACErrorCodes.JWK_EXPORT_FAILED);
+  }
+
   // Generate key ID if not provided
   if (!keyId) {
     const crypto = await import('node:crypto');
@@ -355,23 +396,23 @@ export async function publicKeyToJWK(publicKey, keyId = null) {
     const keyHash = crypto.createHash('sha256').update(derBytes).digest();
     keyId = keyHash.toString('base64url');
   }
-  
+
   const keyType = getKeyType(publicKey);
-  
+
   // Return JWK without specifying 'use' for dual-purpose keys
   // Algorithm selection depends on context (signing vs encryption)
   const result = {
     ...jwk,
     kid: keyId
   };
-  
+
   // Add default algorithm based on key type for compatibility
   if (keyType === 'RSA') {
     result.alg = 'RS256'; // Default for RSA
   } else if (keyType === 'EC') {
     const keyDetail = publicKey.asymmetricKeyDetails;
     const curve = keyDetail?.namedCurve;
-    
+
     switch (curve) {
       case 'P-256':
       case 'prime256v1':
@@ -390,6 +431,6 @@ export async function publicKeyToJWK(publicKey, keyId = null) {
         result.alg = 'ES256';
     }
   }
-  
+
   return result;
 }

@@ -11,18 +11,18 @@ A secure authentication and data encryption protocol that allows AI agents, merc
 
 ## SDK Libraries
 
-- [JavaScript](sdk/javascript/)
-- [TypeScript](sdk/typescript/)
-- [Python](sdk/python/)
-- More coming soon
+- [JavaScript](sdk/javascript/) - Node.js >=18.0.0
+- [TypeScript](sdk/typescript/) - Node.js >=18.0.0  
+- [Python](sdk/python/) - Python >=3.8
+- More coming soon!
 
 ## Key Generation and Publishing
 
 Trusted Agentic Commerce Protocol relies on:
 
-- **JWT with digital signatures** for request authentication (RSA or EC)
-- **JSON Web Encryption (JWE)** for sensitive data protection
-- **JSON Web Key Sets (JWKS)** for key distribution
+- **JWS+JWE Security**: JWT signatures (JWS) wrapped in JSON Web Encryption (JWE) for both authentication and confidentiality
+- **RSA & EC Key Support**: Compatible with RSA and Elliptic Curve (P-256/384/521) keys for signing and encryption
+- **JSON Web Key Sets (JWKS)**: Standard key distribution at `.well-known/jwks.json` endpoints
 
 #### Option 1: Generate RSA Keys (Default - Recommended for compatibility)
 

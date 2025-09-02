@@ -44,3 +44,18 @@ __pycache__/
 **/*.d.ts.map
 schema/**/*.js
 schema/**/*.js.map
+
+# PHP dependencies and build artifacts
+**/vendor/
+**/composer.lock
+
+# Java build artifacts and dependencies
+**/target/
+**/.m2/
+**/*.class
+**/*.jar
+
+# Go build artifacts and dependencies
+**/go.sum
+**/go.mod.bak
+**/bin/

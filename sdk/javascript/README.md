@@ -8,19 +8,20 @@ JavaScript SDK implementing the [Trusted Agentic Commerce Protocol,](https://www
 - ✅ Prevent fraud: differentiates between legitimate agentic activity and fraud attempts
 
 ## Getting Started
-  - [Basic Usage](#basic-usage)
-  - [Advanced Usage](#advanced-usage)
-    - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
-    - [Sending to Multiple Recipients](#sending-to-multiple-recipients)
-    - [Setting Up Callbacks and Notifications](#setting-up-callbacks-and-notifications)
-  - [Express.js Integration](#expressjs-integration)
-  - [Manual JWKS Management](#manual-jwks-management)
-  - [Testing](#testing)
-  - [API Reference](#api-reference)
-  - [Schema](../../schema/)
-  - [Features](#features)
-  - [Requirements](#requirements)
-  
+
+- [Basic Usage](#basic-usage)
+- [Advanced Usage](#advanced-usage)
+  - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
+  - [Sending to Multiple Recipients](#sending-to-multiple-recipients)
+  - [Setting Up Callbacks and Notifications](#setting-up-callbacks-and-notifications)
+- [Express.js Integration](#expressjs-integration)
+- [Manual JWKS Management](#manual-jwks-management)
+- [Development](#development)
+- [API Reference](#api-reference)
+- [Schema](../../schema/)
+- [Features](#features)
+- [Requirements](#requirements)
+
 ## Basic Usage
 
 ### For Senders (AI Agents)
@@ -65,7 +66,7 @@ const tacMessage = await sender.generateTACMessage();
 const response = await fetch('https://merchant.com/api/purchase', {
   method: 'POST',
   headers: {
-    'TAC-Protocol': tacMessage,
+    'TAC-Protocol': tacMessage
   }
 });
 ```
@@ -90,14 +91,14 @@ const result = await recipient.processTACMessage(tacMessage);
 
 if (result.valid) {
   console.log('Request from:', result.issuer); // 'agent.example.com'
-  
+
   if (result.data) {
     console.log('Data for me:', result.data);
     // Access decrypted data specific to this recipient
     console.log('User email:', result.data.user?.email?.address);
     console.log('Session consent:', result.data.session?.consent);
   }
-  
+
   // Process the purchase...
 } else {
   console.error('Authentication failed:', result.errors);
@@ -170,13 +171,13 @@ await sender.addRecipientData('merchant.com', {
         sku: 'AJ1-RETRO-HIGH-BRD-9',
         name: 'Nike Air Jordan 1 Retro High',
         quantity: 1,
-        price: 170.00
+        price: 170.0
       },
       {
         sku: 'AJ-LACES-RED-54',
         name: 'Air Jordan Premium Replacement Laces - Red',
         quantity: 1,
-        price: 15.00
+        price: 15.0
       }
     ],
     shippingAddress: {
@@ -294,19 +295,19 @@ const recipient = new TACRecipient({
 // TAC protocol middleware
 async function requireTACProtocol(req, res, next) {
   const tacMessage = req.get('TAC-Protocol') || req.body.tacProtocol;
-  
+
   if (!tacMessage) {
-    return res.status(401).json({ 
-      error: 'Missing TAC-Protocol' 
+    return res.status(401).json({
+      error: 'Missing TAC-Protocol'
     });
   }
 
   const result = await recipient.processTACMessage(tacMessage);
 
   if (!result.valid) {
-    return res.status(401).json({ 
+    return res.status(401).json({
       error: 'Invalid TAC-Protocol',
-      details: result.errors 
+      details: result.errors
     });
   }
 
@@ -331,8 +332,8 @@ app.post('/api/purchase', requireTACProtocol, (req, res) => {
 });
 
 // JWKS endpoint for public key distribution
-app.get('/.well-known/jwks.json', (req, res) => {
-  const jwk = recipient.getPublicJWK();
+app.get('/.well-known/jwks.json', async (req, res) => {
+  const jwk = await recipient.getPublicJWK();
   res.json({ keys: [jwk] });
 });
 
@@ -355,14 +356,15 @@ console.log('Recipients:', info.recipients); // ['merchant.com', 'forter.com']
 console.log('Expires:', info.expires);
 ```
 
-## Testing
+## Development
+
+### Installation & Testing
 
 ```bash
-# Run tests
-npm test
-
-# Watch mode for development
-npm run test:watch
+npm install                 # Install dependencies
+npm test                    # Run all tests
+npm run lint                # Run linting
+npm run lint:fix            # Auto-fix linting issues
 ```
 
 ## API Reference
@@ -370,53 +372,60 @@ npm run test:watch
 ### TACSender
 
 #### Constructor Options
+
 - `domain` (required) - Your agent's domain (used as JWT issuer)
 - `privateKey` (required) - RSA or EC private key for signing (KeyObject or PEM string)
 - `ttl` - JWT validity in seconds (default: 3600)
 - `cacheTimeout` - JWKS cache TTL in ms (default: 3600000)
 - `maxRetries` - Max JWKS fetch retries (default: 3)
-- `retryDelay` - Initial retry delay in ms (default: 1000)
+- `retryDelay` - Retry delay in ms (default: 1000)
 
 #### Methods
+
 - `setPrivateKey(privateKey)` - Set RSA or EC private key (public key auto-derived)
-- `generateKeyId()` - Get key ID for JWKS
-- `addRecipientData(domain, data)` - Add and encrypt data for a recipient
-- `generateTACMessage()` - Create TAC-Protocol message with JWT and encrypted data
-- `setRecipientsData(recipientsData)` - Set all recipients data (clears existing first)
+- `generateKeyId()` - Get key ID for current private key
+- `addRecipientData(domain, data)` - Add data for a specific recipient domain (async)
+- `setRecipientsData(recipientsData)` - Set all recipients data (clears existing first, async)
 - `clearRecipientData()` - Clear all pending recipient data
-- `fetchJWKS(domain, forceRefresh?)` - Get recipient's public keys
-- `clearCache(domain?)` - Clear JWKS cache
+- `generateTACMessage()` - Create TAC-Protocol message with JWS+JWE encryption (async)
+- `fetchJWKS(domain, forceRefresh?)` - Get recipient's public keys (async)
 - `getPublicJWK()` - Get public key as JWK for JWKS endpoint (async)
+- `clearCache(domain?)` - Clear JWKS cache for specific domain or all
 
 ### TACRecipient
 
 #### Constructor Options
+
 - `domain` (required) - Your domain (used to find your encrypted data)
 - `privateKey` (required) - RSA or EC private key for decryption (KeyObject or PEM string)
 - `cacheTimeout` - JWKS cache TTL in ms (default: 3600000)
 - `maxRetries` - Max JWKS fetch retries (default: 3)
-- `retryDelay` - Initial retry delay in ms (default: 1000)
+- `retryDelay` - Retry delay in ms (default: 1000)
 
 #### Methods
+
 - `setPrivateKey(privateKey)` - Set RSA or EC private key (public key auto-derived)
-- `generateKeyId()` - Get key ID for JWKS
-- `processTACMessage(tacMessage)` - Process and decrypt TAC-Protocol message
-- `fetchJWKS(domain, forceRefresh?)` - Get sender's public keys
-- `clearCache(domain?)` - Clear JWKS cache
+- `generateKeyId()` - Get key ID for current private key
+- `processTACMessage(tacMessage)` - Process and decrypt TAC-Protocol message (async)
+- `fetchJWKS(domain, forceRefresh?)` - Get sender's public keys (async)
 - `getPublicJWK()` - Get public key as JWK for JWKS endpoint (async)
+- `clearCache(domain?)` - Clear JWKS cache for specific domain or all
 
 #### Static Methods
+
 - `TACRecipient.inspect(tacMessage)` - Get message info without decryption
 
 ## Features
 
-- JWT-based authentication with RSA signatures
-- Multi-recipient JWE encryption using General JSON format
-- JWKS key distribution at `/.well-known/jwks.json`
-- Automatic key rotation support
-- Request retry with exponential backoff
-- JWKS caching with TTL
-- Full async support
+- **JWS+JWE Security**: JWT signatures (JWS) wrapped in JSON Web Encryption (JWE) for both authentication and confidentiality
+- **RSA & EC Key Support**: Compatible with RSA and Elliptic Curve (P-256/384/521) keys
+- **Multi-Recipient Encryption**: Single message encrypted for multiple recipients with data isolation
+- **Key Rotation Support**: Automatic key ID (`kid`) handling for seamless key rotation
+- **JWKS Integration**: Standard `.well-known/jwks.json` endpoint support
+- **Network Resilience**: Exponential backoff retry with configurable timeouts
+- **Intelligent Caching**: JWKS caching with TTL for performance optimization
+- **Robust Error Handling**: Comprehensive error classes with specific error codes
+- **Production Ready**: Full async/await support with TypeScript-style JSDoc annotations
 
 ## Requirements
 

@@ -1,5 +1,5 @@
-import crypto from "node:crypto";
-import * as jose from "jose";
+import crypto from 'node:crypto';
+import * as jose from 'jose';
 import {
   JWKSCache,
   fetchJWKSWithRetry,
@@ -7,8 +7,10 @@ import {
   getKeyType,
   getAlgorithmForKey,
   publicKeyToJWK,
-} from "./utils.js";
-import { getSenderUserAgent } from "./version.js";
+  getUserAgent
+} from './utils.js';
+import { SCHEMA_VERSION } from './version.js';
+import { TACValidationError, TACCryptoError, TACNetworkError, TACErrorCodes } from './errors.js';
 
 /**
  * TACSender - Implements the sender side of the Trusted Agentic Commerce Protocol
@@ -26,15 +28,18 @@ class TACSender {
    */
   constructor(options = {}) {
     if (!options.domain) {
-      throw new Error("domain is required in TACSender constructor");
+      throw new TACValidationError('domain is required in TACSender constructor', TACErrorCodes.DOMAIN_REQUIRED);
     }
     if (!options.privateKey) {
-      throw new Error("privateKey is required in TACSender constructor");
+      throw new TACValidationError(
+        'privateKey is required in TACSender constructor',
+        TACErrorCodes.PRIVATE_KEY_REQUIRED
+      );
     }
 
     this.domain = options.domain;
     this.setPrivateKey(options.privateKey); // This sets both private and public keys
-    this.ttl = options.ttl || 3600; // 1 hour default
+    this.ttl = options.ttl !== undefined ? options.ttl : 3600; // 1 hour default
     this.jwksCache = new JWKSCache(options.cacheTimeout || 3600000);
     this.maxRetries = options.maxRetries || 3;
     this.retryDelay = options.retryDelay || 1000;
@@ -47,16 +52,23 @@ class TACSender {
    * @private
    */
   setPrivateKey(privateKey) {
-    if (typeof privateKey === "string") {
-      this.privateKey = crypto.createPrivateKey(privateKey);
-    } else {
-      this.privateKey = privateKey;
+    try {
+      if (typeof privateKey === 'string') {
+        this.privateKey = crypto.createPrivateKey(privateKey);
+      } else {
+        this.privateKey = privateKey;
+      }
+    } catch (error) {
+      throw new TACCryptoError(`Invalid key data: ${error.message}`, TACErrorCodes.INVALID_KEY_DATA);
     }
 
     // Verify it's a supported key type
-    const supportedTypes = ["rsa", "rsa-pss", "ec"];
+    const supportedTypes = ['rsa', 'rsa-pss', 'ec'];
     if (!supportedTypes.includes(this.privateKey.asymmetricKeyType)) {
-      throw new Error("TAC Protocol requires RSA or EC (P-256/384/521) keys");
+      throw new TACCryptoError(
+        'TAC Protocol requires RSA or EC (P-256/384/521) keys',
+        TACErrorCodes.UNSUPPORTED_KEY_TYPE
+      );
     }
 
     // Always derive public key from private key
@@ -64,7 +76,7 @@ class TACSender {
 
     // Store key type and algorithm
     this.keyType = getKeyType(this.privateKey);
-    this.signingAlgorithm = getAlgorithmForKey(this.privateKey, "sig");
+    this.signingAlgorithm = getAlgorithmForKey(this.privateKey, 'sig');
   }
 
   /**
@@ -74,10 +86,10 @@ class TACSender {
    */
   generateKeyId() {
     if (!this.publicKey) {
-      throw new Error("No public key available. Load or set keys first.");
+      throw new TACValidationError('No public key available. Load or set keys first.', TACErrorCodes.NO_PUBLIC_KEY);
     }
-    const keyData = this.publicKey.export({ type: "spki", format: "der" });
-    return crypto.createHash("sha256").update(keyData).digest("base64url");
+    const keyData = this.publicKey.export({ type: 'spki', format: 'der' });
+    return crypto.createHash('sha256').update(keyData).digest('base64url');
   }
 
   /**
@@ -90,10 +102,10 @@ class TACSender {
     return await fetchJWKSWithRetry(domain, {
       cache: this.jwksCache,
       maxRetries: this.maxRetries,
-      initialDelay: this.retryDelay,
+      retryDelay: this.retryDelay,
       maxDelay: this.retryDelay * 30,
-      userAgent: getSenderUserAgent(),
-      forceRefresh,
+      userAgent: getUserAgent(),
+      forceRefresh
     });
   }
 
@@ -131,11 +143,14 @@ class TACSender {
    */
   async generateTACMessage() {
     if (!this.privateKey) {
-      throw new Error("No private key available. Load or set keys first.");
+      throw new TACValidationError('No private key available. Load or set keys first.', TACErrorCodes.NO_PRIVATE_KEY);
     }
 
     if (Object.keys(this.recipientData).length === 0) {
-      throw new Error("No recipient data added. Use addRecipientData() first.");
+      throw new TACValidationError(
+        'No recipient data added. Use addRecipientData() first.',
+        TACErrorCodes.NO_RECIPIENT_DATA
+      );
     }
 
     // Prepare recipient public keys map
@@ -146,16 +161,20 @@ class TACSender {
     for (const domain of Object.keys(this.recipientData)) {
       fetchPromises.push(
         this.fetchJWKS(domain)
-          .then((jwks) => {
+          .then(jwks => {
             const encryptionKey = findEncryptionKey(jwks);
             if (!encryptionKey) {
-              throw new Error(`No suitable encryption key found for ${domain}`);
+              throw new TACNetworkError(
+                `No suitable encryption key found for ${domain}`,
+                TACErrorCodes.NO_ENCRYPTION_KEY_FOUND
+              );
             }
             recipientPublicKeys[domain] = encryptionKey;
           })
-          .catch((error) => {
-            throw new Error(
-              `Failed to fetch keys for ${domain}: ${error.message}`
+          .catch(error => {
+            throw new TACNetworkError(
+              `Failed to fetch keys for ${domain}: ${error.message}`,
+              TACErrorCodes.JWKS_FETCH_FAILED
             );
           })
       );
@@ -174,42 +193,63 @@ class TACSender {
         exp: now + this.ttl,
         iat: now,
         aud: domain, // Audience claim for this specific recipient
-        data: this.recipientData[domain], // Only this recipient's data
+        data: this.recipientData[domain] // Only this recipient's data
       };
 
-      // Sign the JWT using appropriate algorithm based on key type
-      const jws = await new jose.SignJWT(payload)
-        .setProtectedHeader({ alg: this.signingAlgorithm })
-        .sign(this.privateKey);
+      // Step 1: Create and SIGN the JWT with sender's private key (JWS)
+      const keyId = await this.generateKeyId();
+      let signedJWT;
+      try {
+        signedJWT = await new jose.SignJWT(payload)
+          .setProtectedHeader({ alg: this.signingAlgorithm, typ: 'JWT', kid: keyId })
+          .setIssuer(this.domain)
+          .setAudience(domain)
+          .setIssuedAt(now)
+          .setExpirationTime(now + this.ttl)
+          .sign(this.privateKey); // Sign with sender's private key for authentication
+      } catch (error) {
+        throw new TACCryptoError(`JWT signing failed: ${error.message}`, TACErrorCodes.JWT_SIGNING_FAILED);
+      }
 
-      // Encrypt the signed JWT for this specific recipient
-      const publicKey = await jose.importJWK(jwk);
-      const algorithm = jwk.alg || "RSA-OAEP-256";
+      // Step 2: ENCRYPT the signed JWT with recipient's public key (JWE)
+      let publicKey;
+      try {
+        publicKey = await jose.importJWK(jwk);
+      } catch (error) {
+        throw new TACCryptoError(
+          `Failed to import JWK for ${domain}: ${error.message}`,
+          TACErrorCodes.JWK_IMPORT_FAILED
+        );
+      }
 
-      const recipientJWE = await new jose.EncryptJWT(payload)
-        .setProtectedHeader({ alg: algorithm, enc: "A256GCM" })
-        .setIssuedAt()
-        .setExpirationTime(now + this.ttl)
-        .setAudience(domain)
-        .encrypt(publicKey);
+      const algorithm = jwk.alg || 'RSA-OAEP-256';
+      let recipientJWE;
+      try {
+        // Use compact encryption for the signed JWT string
+        recipientJWE = await new jose.CompactEncrypt(new TextEncoder().encode(signedJWT))
+          .setProtectedHeader({ alg: algorithm, enc: 'A256GCM', cty: 'JWT' })
+          .encrypt(publicKey);
+      } catch (error) {
+        throw new TACCryptoError(`Encryption failed for ${domain}: ${error.message}`, TACErrorCodes.ENCRYPTION_FAILED);
+      }
 
       recipientJWEs.push({
         recipient: domain,
-        jwe: recipientJWE,
+        jwe: recipientJWE
       });
     }
 
     // Create multi-recipient container
     const multiRecipientMessage = {
-      version: "2025-08-27",
-      recipients: recipientJWEs.map((r) => ({
+      version: SCHEMA_VERSION,
+      recipients: recipientJWEs.map(r => ({
         kid: r.recipient,
-        jwe: r.jwe,
-      })),
+        jwe: r.jwe
+      }))
     };
 
     const messageJson = JSON.stringify(multiRecipientMessage);
-    return Buffer.from(messageJson).toString("base64");
+    return Buffer.from(messageJson).toString('base64');
   }
 
   /**

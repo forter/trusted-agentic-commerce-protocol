@@ -7,6 +7,7 @@ import unittest
 import json
 import base64
 import asyncio
+import time
 from unittest.mock import AsyncMock, patch
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from cryptography.hazmat.primitives import serialization
@@ -254,6 +255,15 @@ class TestUtilityFunctions(unittest.TestCase):
         cache.clear('test.com')
         self.assertIsNone(cache.get('test.com'))
     
+    def test_jwks_cache_expiry(self):
+        """Test JWKS cache expiry behavior"""
+        cache = JWKSCache(timeout=100)  # 100 ms timeout
+        keys = [{'kty': 'RSA', 'kid': 'expire-test'}]
+        cache.set('expire.com', keys)
+        self.assertEqual(cache.get('expire.com'), keys)
+        time.sleep(0.15)  # Wait 150 ms for expiry
+        self.assertIsNone(cache.get('expire.com'))
+
     def test_find_rsa_encryption_keys(self):
         """Test finding RSA encryption keys"""
         keys = [

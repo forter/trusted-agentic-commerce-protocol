@@ -422,20 +422,17 @@ print(f"Recipients: {info['recipients']}")  # ['merchant.com', 'forter.com']
 print(f"Version: {info['version']}")
 ```
 
-## Testing
+## Development
 
-First, make sure dependencies are installed:
+### Installation & Testing
+
 ```bash
-pip install --index-url https://pypi.org/simple/ "python-jose[cryptography]" aiohttp
-```
-
-Then run tests:
-```bash
-# Run tests with pytest (recommended for detailed output)
-python -m pytest test.py -v
-
-# Or using unittest directly
-python test.py
+make install-dev           # Install development dependencies
+make test                  # Run all tests
+make lint                  # Run linting
+make lint-fix              # Auto-fix linting issues
+make format                # Format code with Black + isort
+make type-check            # Run mypy type checking
 ```
 
 ## API Reference
@@ -451,15 +448,16 @@ python test.py
 - `retry_delay` - Initial retry delay in ms (default: 1000)
 
 #### Methods
-- `set_private_key(private_key)` - Set RSA private key (public key auto-derived)
-- `generate_key_id()` - Get key ID for JWKS
-- `add_recipient_data(domain, data)` - Add and encrypt data for a recipient
-- `generate_tac_message()` - Create TAC-Protocol message with JWT and encrypted data
-- `set_recipients_data(recipients_data)` - Set all recipients data (clears existing first)
+
+- `set_private_key(private_key)` - Set RSA or EC private key (public key auto-derived)
+- `generate_key_id()` - Get key ID for current private key
+- `add_recipient_data(domain, data)` - Add data for a specific recipient domain (async)
+- `set_recipients_data(recipients_data)` - Set all recipients data (clears existing first, async)
 - `clear_recipient_data()` - Clear all pending recipient data
-- `fetch_jwks(domain, force_refresh=False)` - Get recipient's public keys
-- `clear_cache(domain=None)` - Clear JWKS cache
-- `get_public_jwk()` - Get public key as JWK for JWKS endpoint
+- `generate_tac_message()` - Create TAC-Protocol message with JWS+JWE encryption (async)
+- `fetch_jwks(domain, force_refresh=False)` - Get recipient's public keys (async)
+- `get_public_jwk()` - Get public key as JWK for JWKS endpoint (async)
+- `clear_cache(domain=None)` - Clear JWKS cache for specific domain or all
 
 ### TACRecipient
 
@@ -471,25 +469,28 @@ python test.py
 - `retry_delay` - Initial retry delay in ms (default: 1000)
 
 #### Methods
-- `set_private_key(private_key)` - Set RSA private key (public key auto-derived)
-- `generate_key_id()` - Get key ID for JWKS
-- `process_tac_message(tac_message)` - Process and decrypt TAC-Protocol message
-- `fetch_jwks(domain, force_refresh=False)` - Get sender's public keys
-- `clear_cache(domain=None)` - Clear JWKS cache
-- `get_public_jwk()` - Get public key as JWK for JWKS endpoint
+
+- `set_private_key(private_key)` - Set RSA or EC private key (public key auto-derived)
+- `generate_key_id()` - Get key ID for current private key
+- `process_tac_message(tac_message)` - Process and decrypt TAC-Protocol message (async)
+- `fetch_jwks(domain, force_refresh=False)` - Get sender's public keys (async)
+- `get_public_jwk()` - Get public key as JWK for JWKS endpoint (async)
+- `clear_cache(domain=None)` - Clear JWKS cache for specific domain or all
 
 #### Static Methods
 - `TACRecipient.inspect(tac_message)` - Get message info without decryption
 
 ## Features
 
-- JWT-based authentication with RSA signatures
-- Multi-recipient JWE encryption using General JSON format
-- JWKS key distribution at `/.well-known/jwks.json`
-- Automatic key rotation support
-- Request retry with exponential backoff
-- JWKS caching with TTL
-- Full async support
+- **JWS+JWE Security**: JWT signatures (JWS) wrapped in JSON Web Encryption (JWE) for both authentication and confidentiality
+- **RSA & EC Key Support**: Compatible with RSA and Elliptic Curve (P-256/384/521) keys
+- **Multi-Recipient Encryption**: Single message encrypted for multiple recipients with data isolation
+- **Key Rotation Support**: Automatic key ID (`kid`) handling for seamless key rotation
+- **JWKS Integration**: Standard `.well-known/jwks.json` endpoint support
+- **Network Resilience**: Exponential backoff retry with configurable timeouts
+- **Intelligent Caching**: JWKS caching with TTL for performance optimization
+- **Robust Error Handling**: Comprehensive error classes with specific error codes
+- **Production Ready**: Full async/await support with comprehensive test coverage
 
 ## Requirements
 

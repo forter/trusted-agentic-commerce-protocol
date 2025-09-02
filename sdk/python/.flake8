@@ -1,0 +1,36 @@
+[flake8]
+max-line-length = 120
+extend-ignore = 
+    # E203: whitespace before ':' (conflicts with black)
+    E203,
+    # W503: line break before binary operator (conflicts with black)
+    W503,
+    # E501: line too long (handled by black)
+    E501
+exclude = 
+    .git,
+    __pycache__,
+    .pytest_cache,
+    .mypy_cache,
+    build,
+    dist,
+    *.egg-info,
+    .venv,
+    venv,
+    .env
+per-file-ignores =
+    # Allow star imports in __init__.py
+    __init__.py:F401,F403
+    # Allow print statements in tests
+    test_*.py:T201
+    tests/*.py:T201
+
+# Complexity
+max-complexity = 10
+
+# Docstring requirements
+docstring-convention = google
+
+# Import order
+import-order-style = google
+application-import-names = trustedagenticcommerce

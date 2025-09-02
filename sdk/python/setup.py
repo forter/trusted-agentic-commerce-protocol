@@ -10,14 +10,15 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="trusted-agentic-commerce-protocol",
-    version="0.1.0",
+    version="0.2.0",
     author="Forter",
     author_email="support@forter.com",
     description="Python SDK implementing the Trusted Agentic Commerce Protocol for secure authentication and data encryption between AI agents, merchants and merchant vendors.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/forter/trusted-agentic-commerce-protocol",
-    packages=find_packages(),
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",

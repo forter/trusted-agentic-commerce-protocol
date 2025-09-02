@@ -8,100 +8,101 @@ TypeScript SDK implementing the [Trusted Agentic Commerce Protocol,](https://www
 - ✅ Prevent fraud: differentiates between legitimate agentic activity and fraud attempts
 
 ## Getting Started
-  - [Basic Usage](#basic-usage)
-  - [Advanced Usage](#advanced-usage)
-    - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
-    - [Sending to Multiple Recipients](#sending-to-multiple-recipients)
-    - [Setting Up Callbacks and Notifications](#setting-up-callbacks-and-notifications)
-  - [Express.js Integration](#expressjs-integration)
-  - [TypeScript Schema Types](#typescript-schema-types)
-  - [Manual JWKS Management](#manual-jwks-management)
-  - [Building and Testing](#building-and-testing)
-  - [API Reference](#api-reference)
-  - [Schema](../../schema/)
-  - [Features](#features)
-  - [Requirements](#requirements)
+
+- [Basic Usage](#basic-usage)
+- [Advanced Usage](#advanced-usage)
+  - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
+  - [Sending to Multiple Recipients](#sending-to-multiple-recipients)
+  - [Setting Up Callbacks and Notifications](#setting-up-callbacks-and-notifications)
+- [Express.js Integration](#expressjs-integration)
+- [TypeScript Schema Types](#typescript-schema-types)
+- [Manual JWKS Management](#manual-jwks-management)
+- [Building and Testing](#building-and-testing)
+- [API Reference](#api-reference)
+- [Schema](../../schema/)
+- [Features](#features)
+- [Requirements](#requirements)
 
 ## Basic Usage
 
 ### For Senders (AI Agents)
 
 ```typescript
-import TACSender from './sender.js';
+import TACSender from "./sender.js";
 
 // Get private key from environment, vault or secret manager
 const agentPrivateKey = process.env.AGENT_PRIVATE_KEY!; // RSA or EC private key in PEM format
 
 // Initialize sender
 const sender = new TACSender({
-  domain: 'agent.example.com', // your agent domain (used as 'iss' in JWT)
-  privateKey: agentPrivateKey
+  domain: "agent.example.com", // your agent domain (used as 'iss' in JWT)
+  privateKey: agentPrivateKey,
 });
 
 // Set data for a single recipient (merchant.com)
 await sender.setRecipientsData({
-  'merchant.com': {
+  "merchant.com": {
     session: {
-      consent: 'Buy Nike Air Jordan Retro shoes under $200',
-      channel: 'CHAT'
+      consent: "Buy Nike Air Jordan Retro shoes under $200",
+      channel: "CHAT",
     },
     user: {
       email: {
-        address: 'john.doe@example.com',
+        address: "john.doe@example.com",
         verifications: [
           {
-            method: 'EMAIL_OTP',
-            at: '2025-01-15T10:30:00Z'
-          }
-        ]
-      }
-    }
-  }
+            method: "EMAIL_OTP",
+            at: "2025-01-15T10:30:00Z",
+          },
+        ],
+      },
+    },
+  },
 });
 
 // Generate TAC-Protocol message
 const tacMessage = await sender.generateTACMessage();
 
 // Make authenticated request to merchant
-const response = await fetch('https://merchant.com/api/purchase', {
-  method: 'POST',
+const response = await fetch("https://merchant.com/api/purchase", {
+  method: "POST",
   headers: {
-    'TAC-Protocol': tacMessage
-  }
+    "TAC-Protocol": tacMessage,
+  },
 });
 ```
 
 ### For Recipients (Merchants)
 
 ```typescript
-import TACRecipient from './recipient.js';
+import TACRecipient from "./recipient.js";
 
 // Get private key from environment, vault or secret manager
 const merchantPrivateKey = process.env.MERCHANT_PRIVATE_KEY!; // RSA or EC private key in PEM format
 
 // Initialize recipient
 const recipient = new TACRecipient({
-  domain: 'merchant.com', // your domain as recipient
-  privateKey: merchantPrivateKey
+  domain: "merchant.com", // your domain as recipient
+  privateKey: merchantPrivateKey,
 });
 
 // Process TAC-Protocol message (from header or body)
-const tacMessage = req.headers['TAC-Protocol'] || req.body.tacProtocol;
+const tacMessage = req.headers["TAC-Protocol"] || req.body.tacProtocol;
 const result = await recipient.processTACMessage(tacMessage);
 
 if (result.valid) {
-  console.log('Request from:', result.issuer); // 'agent.example.com'
-  
+  console.log("Request from:", result.issuer); // 'agent.example.com'
+
   if (result.data) {
-    console.log('Data for me:', result.data);
+    console.log("Data for me:", result.data);
     // Access decrypted data specific to this recipient
-    console.log('User email:', result.data.user?.email?.address);
-    console.log('Session consent:', result.data.session?.consent);
+    console.log("User email:", result.data.user?.email?.address);
+    console.log("Session consent:", result.data.session?.consent);
   }
-  
+
   // Process the purchase...
 } else {
-  console.error('Authentication failed:', result.errors);
+  console.error("Authentication failed:", result.errors);
 }
 ```
 
@@ -121,33 +122,33 @@ Many security and fraud prevention vendors require specific tokens or identifier
 // along with IP address and user agent from the request
 
 const sender = new TACSender({
-  domain: 'agent.example.com',
-  privateKey: agentPrivateKey
+  domain: "agent.example.com",
+  privateKey: agentPrivateKey,
 });
 
 await sender.setRecipientsData({
-  'merchant.com': {
+  "merchant.com": {
     user: {
       preferences: {
-        brands: ['Nike', 'On', 'Asics'],
+        brands: ["Nike", "On", "Asics"],
         sizes: {
           shoe: {
             value: 9,
-            unit: 'US',
-            method: 'HISTORICAL_PURCHASE',
-            at: '2025-06-10T10:00:00Z'
-          }
-        }
-      }
-    }
+            unit: "US",
+            method: "HISTORICAL_PURCHASE",
+            at: "2025-06-10T10:00:00Z",
+          },
+        },
+      },
+    },
   },
-  'forter.com': {
+  "forter.com": {
     session: {
       ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      forterToken: req.cookies.forterToken // captured from cookie
-    }
-  }
+      userAgent: req.headers["user-agent"],
+      forterToken: req.cookies.forterToken, // captured from cookie
+    },
+  },
 });
 
 const tacMessage = await sender.generateTACMessage();
@@ -159,60 +160,60 @@ Use `addRecipientData` to incrementally add recipients with their specific data:
 
 ```typescript
 const sender = new TACSender({
-  domain: 'agent.example.com',
-  privateKey: agentPrivateKey
+  domain: "agent.example.com",
+  privateKey: agentPrivateKey,
 });
 
 // Add merchant with order details
-await sender.addRecipientData('merchant.com', {
+await sender.addRecipientData("merchant.com", {
   order: {
     cart: [
       {
-        sku: 'AJ1-RETRO-HIGH-BRD-9',
-        name: 'Nike Air Jordan 1 Retro High',
+        sku: "AJ1-RETRO-HIGH-BRD-9",
+        name: "Nike Air Jordan 1 Retro High",
         quantity: 1,
-        price: 170.00
+        price: 170.0,
       },
       {
-        sku: 'AJ-LACES-RED-54',
-        name: 'Air Jordan Premium Replacement Laces - Red',
+        sku: "AJ-LACES-RED-54",
+        name: "Air Jordan Premium Replacement Laces - Red",
         quantity: 1,
-        price: 15.00
-      }
+        price: 15.0,
+      },
     ],
     shippingAddress: {
-      name: 'Jane Doe',
-      line1: '456 Main St',
-      city: 'Springfield',
-      region: 'IL',
-      postal: '62704',
-      country: 'US',
-      type: 'RESIDENTIAL'
-    }
-  }
+      name: "Jane Doe",
+      line1: "456 Main St",
+      city: "Springfield",
+      region: "IL",
+      postal: "62704",
+      country: "US",
+      type: "RESIDENTIAL",
+    },
+  },
 });
 
 // Add fraud detection vendor with session data
-await sender.addRecipientData('forter.com', {
+await sender.addRecipientData("forter.com", {
   session: {
-    forterToken: 'ftr_xyz'
-  }
+    forterToken: "ftr_xyz",
+  },
 });
 
 // Add payment processor with payment method
-await sender.addRecipientData('stripe.com', {
+await sender.addRecipientData("stripe.com", {
   order: {
     paymentMethod: {
-      type: 'CARD',
+      type: "CARD",
       card: {
-        token: 'tok_xyz',
-        brand: 'VISA',
+        token: "tok_xyz",
+        brand: "VISA",
         last4: 4242,
         expiryMonth: 12,
-        expiryYear: 2026
-      }
-    }
-  }
+        expiryYear: 2026,
+      },
+    },
+  },
 });
 
 // Generate single message with all encrypted recipient data
@@ -225,51 +226,55 @@ The TAC Protocol supports bidirectional notifications - agents can receive webho
 
 ```typescript
 const sender = new TACSender({
-  domain: 'agent.example.com',
-  privateKey: agentPrivateKey
+  domain: "agent.example.com",
+  privateKey: agentPrivateKey,
 });
 
 await sender.setRecipientsData({
-  'merchant.com': {
+  "merchant.com": {
     user: {
       phone: {
-        number: '+14155550123',
-        type: 'MOBILE',
-        verifications: [{
-          method: 'SMS_OTP',
-          at: '2025-07-30T18:20:00Z'
-        }]
-      }
+        number: "+14155550123",
+        type: "MOBILE",
+        verifications: [
+          {
+            method: "SMS_OTP",
+            at: "2025-07-30T18:20:00Z",
+          },
+        ],
+      },
     },
     order: {
-      cart: [{
-        id: 'nike-123',
-        name: 'Air Jordan 1',
-        quantity: 1,
-        price: 189.99
-      }]
+      cart: [
+        {
+          id: "nike-123",
+          name: "Air Jordan 1",
+          quantity: 1,
+          price: 189.99,
+        },
+      ],
     },
     notifications: [
       // Webhook for the AI agent to receive updates
       {
-        events: ['ORDER_STATUS', 'PAYMENT_STATUS'],
-        type: 'URL',
-        target: 'https://agent.example.com/webhooks'
+        events: ["ORDER_STATUS", "PAYMENT_STATUS"],
+        type: "URL",
+        target: "https://agent.example.com/webhooks",
       },
       // SMS notification for the end user
       {
-        events: ['SHIPPING_STATUS'],
-        type: 'SMS',
-        target: '+14155551234' // User's phone number
+        events: ["SHIPPING_STATUS"],
+        type: "SMS",
+        target: "+14155551234", // User's phone number
       },
       // Slack notification for fraud team
       {
-        events: ['DISPUTE_STATUS'],
-        type: 'SLACK',
-        target: 'https://hooks.slack.com/services/T00000000/B00000000/XXXX'
-      }
-    ]
-  }
+        events: ["DISPUTE_STATUS"],
+        type: "SLACK",
+        target: "https://hooks.slack.com/services/T00000000/B00000000/XXXX",
+      },
+    ],
+  },
 });
 
 const tacMessage = await sender.generateTACMessage();
@@ -278,8 +283,8 @@ const tacMessage = await sender.generateTACMessage();
 ## Express.js Integration
 
 ```typescript
-import express from 'express';
-import TACRecipient from './recipient.js';
+import express from "express";
+import TACRecipient from "./recipient.js";
 
 const app = express();
 app.use(express.json());
@@ -289,26 +294,26 @@ const merchantPrivateKey = process.env.MERCHANT_PRIVATE_KEY!;
 
 // Initialize recipient
 const recipient = new TACRecipient({
-  domain: 'merchant.com',
-  privateKey: merchantPrivateKey
+  domain: "merchant.com",
+  privateKey: merchantPrivateKey,
 });
 
 // TAC authentication middleware
 async function requireTACProtocol(req: express.Request, res: express.Response, next: express.NextFunction) {
-  const tacMessage = req.get('TAC-Protocol') || req.body.tacProtocol;
-  
+  const tacMessage = req.get("TAC-Protocol") || req.body.tacProtocol;
+
   if (!tacMessage) {
-    return res.status(401).json({ 
-      error: 'Missing TAC-Protocol' 
+    return res.status(401).json({
+      error: "Missing TAC-Protocol",
     });
   }
 
   const result = await recipient.processTACMessage(tacMessage);
 
   if (!result.valid) {
-    return res.status(401).json({ 
-      error: 'Invalid TAC-Protocol',
-      details: result.errors 
+    return res.status(401).json({
+      error: "Invalid TAC-Protocol",
+      details: result.errors,
     });
   }
 
@@ -316,25 +321,25 @@ async function requireTACProtocol(req: express.Request, res: express.Response, n
     issuer: result.issuer,
     expires: result.expires,
     data: result.data,
-    recipients: result.recipients
+    recipients: result.recipients,
   };
   next();
 }
 
 // Protected endpoint
-app.post('/api/purchase', requireTACProtocol, (req: express.Request, res: express.Response) => {
+app.post("/api/purchase", requireTACProtocol, (req: express.Request, res: express.Response) => {
   const tacProtocol = (req as any).tacProtocol;
   console.log(`Processing purchase from ${tacProtocol.issuer}`);
   if (tacProtocol.data) {
     // Process decrypted user data
-    console.log('User email:', tacProtocol.data.user?.email?.address);
-    console.log('Session consent:', tacProtocol.data.session?.consent);
+    console.log("User email:", tacProtocol.data.user?.email?.address);
+    console.log("Session consent:", tacProtocol.data.session?.consent);
   }
-  res.json({ status: 'success', order_id: '12345' });
+  res.json({ status: "success", order_id: "12345" });
 });
 
 // JWKS endpoint for public key distribution
-app.get('/.well-known/jwks.json', async (req: express.Request, res: express.Response) => {
+app.get("/.well-known/jwks.json", async (req: express.Request, res: express.Response) => {
   const jwk = await recipient.getPublicJWK();
   res.json({ keys: [jwk] });
 });
@@ -346,16 +351,16 @@ app.listen(3000);
 
 ```typescript
 // Force refresh JWKS for a specific domain
-const keys = await sender.fetchJWKS('merchant.com', true);
+const keys = await sender.fetchJWKS("merchant.com", true);
 
 // Clear cache for specific domain or all
-sender.clearCache('merchant.com');
+sender.clearCache("merchant.com");
 sender.clearCache(); // Clear all
 
 // Inspect TAC-Protocol message without decryption
 const info = TACRecipient.inspect(tacMessage);
-console.log('Recipients:', info.recipients); // ['merchant.com', 'forter.com']
-console.log('Version:', info.version);
+console.log("Recipients:", info.recipients); // ['merchant.com', 'forter.com']
+console.log("Version:", info.version);
 ```
 
 ## TypeScript Schema Types
@@ -363,46 +368,37 @@ console.log('Version:', info.version);
 The SDK uses comprehensive TypeScript types from the official TAC Protocol schema. For static typing and reference, import from the protocol schema:
 
 ```typescript
-import type { 
-  User, 
-  Order, 
-  Session, 
-  Email, 
-  Phone, 
-  PaymentMethod, 
-  Address 
-} from '../../schema/2025-08-27/schema.js';
+import type { User, Order, Session, Email, Phone, PaymentMethod, Address } from "../../schema/2025-08-27/schema.js";
 
 const userData: User = {
   email: {
-    address: 'user@example.com',
-    verifications: [{
-      method: 'EMAIL_OTP',
-      at: '2025-01-15T10:30:00Z'
-    }]
+    address: "user@example.com",
+    verifications: [
+      {
+        method: "EMAIL_OTP",
+        at: "2025-01-15T10:30:00Z",
+      },
+    ],
   },
   preferences: {
-    brands: ['Nike', 'Adidas'],
-    languages: ['en-US'],
-    currencies: ['USD']
-  }
+    brands: ["Nike", "Adidas"],
+    languages: ["en-US"],
+    currencies: ["USD"],
+  },
 };
 ```
 
-## Building and Testing
+## Development
+
+### Building and Testing
 
 ```bash
-# Install dependencies
-npm install
-
-# Build the TypeScript code
-npm run build
-
-# Run tests
-npm test
-
-# Watch mode for development
-npm run dev
+npm install                # Install dependencies
+npm run build              # Build TypeScript code
+npm test                   # Run all tests
+npm run lint               # Run linting
+npm run lint:fix           # Auto-fix linting issues
+npm run dev                # Watch mode for development
 ```
 
 ## API Reference
@@ -410,53 +406,60 @@ npm run dev
 ### TACSender
 
 #### Constructor Options
+
 - `domain` (required) - Your agent's domain (used as JWT issuer)
-- `privateKey` (required) - RSA private key for signing (KeyObject or PEM string)
+- `privateKey` (required) - RSA or EC private key for signing (KeyObject or PEM string)
 - `ttl` - JWT validity in seconds (default: 3600)
 - `cacheTimeout` - JWKS cache TTL in ms (default: 3600000)
 - `maxRetries` - Max JWKS fetch retries (default: 3)
 - `retryDelay` - Initial retry delay in ms (default: 1000)
 
 #### Methods
-- `setPrivateKey(privateKey)` - Set RSA private key (public key auto-derived)
-- `generateKeyId()` - Get key ID for JWKS
-- `addRecipientData(domain, data)` - Add and encrypt data for a recipient
-- `generateTACMessage()` - Create TAC-Protocol message with JWT and encrypted data
-- `setRecipientsData(recipientsData)` - Set all recipients data (clears existing first)
+
+- `setPrivateKey(privateKey)` - Set RSA or EC private key (public key auto-derived)
+- `generateKeyId()` - Get key ID for current private key
+- `addRecipientData(domain, data)` - Add data for a specific recipient domain (async)
+- `setRecipientsData(recipientsData)` - Set all recipients data (clears existing first, async)
 - `clearRecipientData()` - Clear all pending recipient data
-- `fetchJWKS(domain, forceRefresh?)` - Get recipient's public keys
-- `clearCache(domain?)` - Clear JWKS cache
+- `generateTACMessage()` - Create TAC-Protocol message with JWS+JWE encryption (async)
+- `fetchJWKS(domain, forceRefresh?)` - Get recipient's public keys (async)
 - `getPublicJWK()` - Get public key as JWK for JWKS endpoint (async)
+- `clearCache(domain?)` - Clear JWKS cache for specific domain or all
 
 ### TACRecipient
 
 #### Constructor Options
+
 - `domain` (required) - Your domain (used to find your encrypted data)
-- `privateKey` (required) - RSA private key for decryption (KeyObject or PEM string)
+- `privateKey` (required) - RSA or EC private key for decryption (KeyObject or PEM string)
 - `cacheTimeout` - JWKS cache TTL in ms (default: 3600000)
 - `maxRetries` - Max JWKS fetch retries (default: 3)
 - `retryDelay` - Initial retry delay in ms (default: 1000)
 
 #### Methods
-- `setPrivateKey(privateKey)` - Set RSA private key (public key auto-derived)
-- `generateKeyId()` - Get key ID for JWKS
-- `processTACMessage(tacMessage)` - Process and decrypt TAC-Protocol message
-- `fetchJWKS(domain, forceRefresh?)` - Get sender's public keys
-- `clearCache(domain?)` - Clear JWKS cache
+
+- `setPrivateKey(privateKey)` - Set RSA or EC private key (public key auto-derived)
+- `generateKeyId()` - Get key ID for current private key
+- `processTACMessage(tacMessage)` - Process and decrypt TAC-Protocol message (async)
+- `fetchJWKS(domain, forceRefresh?)` - Get sender's public keys (async)
 - `getPublicJWK()` - Get public key as JWK for JWKS endpoint (async)
+- `clearCache(domain?)` - Clear JWKS cache for specific domain or all
 
 #### Static Methods
+
 - `TACRecipient.inspect(tacMessage)` - Get message info without decryption
 
 ## Features
 
-- JWT-based authentication with RSA signatures
-- Multi-recipient JWE encryption using General JSON format
-- JWKS key distribution at `/.well-known/jwks.json`
-- Automatic key rotation support
-- Request retry with exponential backoff
-- JWKS caching with TTL
-- Full async support
+- **JWS+JWE Security**: JWT signatures (JWS) wrapped in JSON Web Encryption (JWE) for both authentication and confidentiality
+- **RSA & EC Key Support**: Compatible with RSA and Elliptic Curve (P-256/384/521) keys
+- **Multi-Recipient Encryption**: Single message encrypted for multiple recipients with data isolation
+- **Key Rotation Support**: Automatic key ID (`kid`) handling for seamless key rotation
+- **JWKS Integration**: Standard `.well-known/jwks.json` endpoint support
+- **Network Resilience**: Exponential backoff retry with configurable timeouts
+- **Intelligent Caching**: JWKS caching with TTL for performance optimization
+- **Robust Error Handling**: Comprehensive error classes with specific error codes
+- **Production Ready**: Full async/await support with comprehensive test coverage
 
 ## Requirements
 

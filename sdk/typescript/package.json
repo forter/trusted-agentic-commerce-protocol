@@ -1,23 +1,37 @@
 {
-  "name": "@trusted-agentic-commerce/typescript",
-  "version": "0.1.0",
+  "name": "trusted-agentic-commerce-protocol",
+  "version": "0.2.0",
   "description": "TypeScript SDK implementing the Trusted Agentic Commerce Protocol for secure authentication and data encryption between AI agents, merchants and merchant vendors.",
   "type": "module",
-  "main": "dist/sdk/typescript/index.js",
-  "types": "dist/sdk/typescript/index.d.ts",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test dist/sdk/typescript/test.js",
-    "test:watch": "npm run build && node --test --watch dist/sdk/typescript/test.js",
-    "dev": "tsc --watch"
+    "test": "npm run build && node dist/tests/test-runner.js",
+    "test:all": "npm run build && node dist/tests/test-runner.js",
+    "test:crypto": "npm run build && node dist/tests/test-runner.js crypto",
+    "test:cache": "npm run build && node dist/tests/test-runner.js cache",
+    "test:network": "npm run build && node dist/tests/test-runner.js network",
+    "test:sender": "npm run build && node dist/tests/test-runner.js sender",
+    "test:recipient": "npm run build && node dist/tests/test-runner.js recipient",
+    "test:errors": "npm run build && node dist/tests/test-runner.js errors",
+    "test:integration": "npm run build && node dist/tests/test-runner.js integration",
+    "test:utils": "npm run build && node dist/tests/test-runner.js utils",
+    "test:watch": "npm run build && node --test --watch dist/tests/*.test.js",
+    "test:list": "npm run build && node dist/tests/test-runner.js list",
+    "dev": "tsc --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "fix": "npm run format && npm run lint:fix"
   },
   "keywords": [
     "trusted-agentic-commerce",
-    "tap-protocol",
-    "agent",
     "authentication",
     "agentic-commerce",
-    "jwt",
+    "forter",
+    "jws",
     "jwe",
     "jwks",
     "encryption",
@@ -31,7 +45,12 @@
   "bugs": "https://github.com/forter/trusted-agentic-commerce-protocol/issues",
   "devDependencies": {
     "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "prettier": "^3.6.2",
+    "eslint-config-prettier": "^10.1.8"
   },
   "dependencies": {
     "jose": "^5.2.0"

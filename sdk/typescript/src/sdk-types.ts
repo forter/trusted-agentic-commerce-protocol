@@ -1,8 +1,111 @@
-import { KeyObject } from 'node:crypto';
+import { KeyObject } from "node:crypto";
 
-// Import ALL schema types from the canonical source
-export * from '../../schema/2025-08-27/schema.js';
-import type * as Schema from '../../schema/2025-08-27/schema.js';
+// Schema types - defined locally for now
+// TODO: Import from canonical schema when available
+
+// Basic schema types
+export interface Email {
+  address: string;
+  verified?: boolean;
+}
+
+export interface Phone {
+  number: string;
+  verified?: boolean;
+}
+
+export interface Verification {
+  method: string;
+  verified: boolean;
+  timestamp?: string;
+}
+
+export interface Address {
+  street: string;
+  city: string;
+  state?: string;
+  country: string;
+  postalCode?: string;
+}
+
+export interface Size {
+  width?: number;
+  height?: number;
+  depth?: number;
+  weight?: number;
+}
+
+export interface ShippingMethod {
+  id: string;
+  name: string;
+  cost: number;
+  estimatedDays?: number;
+}
+
+export interface Preferences {
+  notifications?: boolean;
+  marketing?: boolean;
+  [key: string]: any;
+}
+
+export interface Item {
+  id: string;
+  name: string;
+  price: number;
+  quantity?: number;
+  category?: string;
+}
+
+export interface CartItem extends Item {
+  quantity: number;
+  subtotal: number;
+}
+
+export interface TokenizedCard {
+  token: string;
+  last4: string;
+  brand: string;
+  expiryMonth: number;
+  expiryYear: number;
+}
+
+export interface PaymentMethod {
+  type: "card" | "bank" | "wallet";
+  tokenizedCard?: TokenizedCard;
+  [key: string]: any;
+}
+
+export interface Loyalty {
+  program: string;
+  points?: number;
+  tier?: string;
+}
+
+export interface User {
+  id?: string;
+  email?: Email;
+  phone?: Phone;
+  address?: Address;
+  preferences?: Preferences;
+  loyalty?: Loyalty;
+}
+
+export interface Order {
+  id: string;
+  items: CartItem[];
+  total: number;
+  currency: string;
+  user?: User;
+  shippingMethod?: ShippingMethod;
+  paymentMethod?: PaymentMethod;
+}
+
+export interface Session {
+  id?: string;
+  userId?: string;
+  timestamp?: string;
+  [key: string]: any;
+}
 
 /**
  * JWKS structure
@@ -24,13 +127,13 @@ export interface CachedJWKS {
  */
 export interface JWK {
   /** Key type */
-  kty: 'RSA' | 'EC' | 'OKP';
+  kty: "RSA" | "EC" | "OKP";
   /** Key ID */
   kid?: string;
   /** Algorithm */
   alg?: string;
   /** Key use (sig, enc) */
-  use?: 'sig' | 'enc';
+  use?: "sig" | "enc";
   /** Curve (for EC and OKP keys) */
   crv?: string;
   /** X coordinate (for EC and OKP keys) */
@@ -110,15 +213,15 @@ export interface ProcessingResult {
  */
 export interface Recipient {
   /** User information and account details */
-  user?: Schema.User;
+  user?: User;
   /** Order/transaction information */
-  order?: Schema.Order;
+  order?: Order;
   /** Session context and tracking */
-  session?: Schema.Session;
+  session?: Session;
   /** Standalone items (not necessarily in cart) */
-  items?: Schema.Item[];
+  items?: Item[];
   /** Updates, webhooks and endpoints for async events */
-  notifications?: Schema.Notification[];
+  notifications?: any[];
   /** Custom fields for extensibility */
   custom?: Record<string, any>;
   /** Allow any other properties for flexibility */

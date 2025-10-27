@@ -139,14 +139,12 @@ class TACSender:
         """
         return await fetch_jwks_with_retry(
             domain,
-            {
-                "cache": self.jwks_cache,
-                "max_retries": self.max_retries,
-                "retry_delay": self.retry_delay,
-                "max_delay": self.retry_delay * 30,
-                "user_agent": get_user_agent(),
-                "force_refresh": force_refresh,
-            },
+            cache=self.jwks_cache,
+            max_retries=self.max_retries,
+            retry_delay=self.retry_delay,
+            max_delay=self.retry_delay * 30,
+            user_agent=get_user_agent(),
+            force_refresh=force_refresh,
         )
 
     async def add_recipient_data(self, domain: str, data: Dict[str, Any]):

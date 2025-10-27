@@ -10,7 +10,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="trusted-agentic-commerce-protocol",
-    version="0.2.0",
+    version="0.2.1",
     author="Forter",
     author_email="support@forter.com",
     description="Python SDK implementing the Trusted Agentic Commerce Protocol for secure authentication and data encryption between AI agents, merchants and merchant vendors.",

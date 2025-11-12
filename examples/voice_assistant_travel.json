@@ -1,0 +1,115 @@
+{
+    "version": "2025-11-12",
+    "recipients": {
+      "travel.example.com": {
+        "session": {
+          "id": "assistant-session-12345",
+          "channel": "VOICE",
+          "source": "assistant-name",
+          "intent": "Book round-trip flight and hotel for family vacation to Orlando",
+          "consent": "User confirmed booking via voice command"
+        },
+        "user": {
+          "id": "user-789",
+          "email": {
+            "address": "john.doe@example.com"
+          },
+          "preferences": {
+            "flight": {
+              "origin": "SFO",
+              "destination": "MCO",
+              "departure": "2025-12-20",
+              "return": "2025-12-27",
+              "passengers": {
+                "adults": 2,
+                "children": 2
+              },
+              "classes": ["ECONOMY"],
+              "maxStops": 0,
+              "airlines": ["AA", "DL"]
+            },
+            "hotel": {
+              "location": "Orlando, FL",
+              "checkIn": "2025-12-20",
+              "checkOut": "2025-12-27",
+              "guests": {
+                "adults": 2,
+                "children": 2
+              },
+              "rooms": 1,
+              "amenities": ["WIFI", "BREAKFAST_INCLUDED", "POOL", "PARKING"],
+              "services": ["LATE_CHECKOUT", "CRIB"]
+            },
+            "paymentMethods": [
+              {
+                "type": "CARD",
+                "card": {
+                  "type": "CREDIT",
+                  "brand": "VISA",
+                  "last4": "4242"
+                }
+              }
+            ]
+          }
+        },
+        "notifications": [
+          {
+            "events": ["ORDER_STATUS", "DISPUTE"],
+            "type": "WEBHOOK",
+            "target": "http://assistant.api/cb"
+          },
+          {
+            "events": ["ORDER_STATUS", "PAYMENT_STATUS"],
+            "type": "EMAIL",
+            "target": "john.doe@example.com"
+          },
+          {
+            "events": ["SHIPPING_STATUS"],
+            "type": "SMS",
+            "target": "+14155551234"
+          }
+        ]
+      }
+    },
+    "forter.com": {
+      "session": {
+        "intent": "Book round-trip flight and hotel for family vacation to Orlando",
+        "consent": "User confirmed booking via voice command",
+        "ipAddress": "203.0.113.45",
+        "userAgent": "Assistant-iOS/4.7.1 (iPhone; iOS 17.2)",
+        "deviceId": "device-12345",
+        "deviceIpAddress": "204.0.98.111",
+        "deviceUserAgent": "Assistant-Device/3.0 (Linux; Android 8.1.0)",
+        "deviceTimezone": "America/New_York",
+        "deviceLanguage": "en",
+        "forterToken": "ftr_xyz"
+      },
+      "user": {
+        "id": "user-789",
+        "created": "2025-01-15T10:30:00Z",
+        "email": {
+          "address": "john.doe@example.com",
+          "verifications": [
+            {
+              "method": "EMAIL_OTP",
+              "at": "2025-01-15T10:30:00Z"
+            },
+            {
+              "method": "VOICE",
+              "at": "2025-01-20T10:30:00Z"
+            }
+          ]
+        }
+      },
+      "paymentMethods": [
+        {
+          "type": "CARD",
+          "card": {
+            "last4": "4242"
+          },
+          "created": "2025-01-15T10:30:00Z"
+        }
+      ]
+    }
+  }
+  

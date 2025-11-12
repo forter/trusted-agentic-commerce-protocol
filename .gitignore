@@ -45,6 +45,9 @@ __pycache__/
 schema/**/*.js
 schema/**/*.js.map
 
+# Schema generation scripts (internal tooling)
+schema/scripts/
+
 # PHP dependencies and build artifacts
 **/vendor/
 **/composer.lock

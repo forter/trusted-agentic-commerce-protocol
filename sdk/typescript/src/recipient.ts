@@ -145,6 +145,13 @@ export default class TACRecipient {
     // Decode base64 message (strictly required - raw JSON not accepted)
     let decodedMessage: string;
 
+    // Check message size limit (100KB max to prevent DoS)
+    const MAX_MESSAGE_SIZE = 100 * 1024; // 100KB
+    if (tacMessage.length > MAX_MESSAGE_SIZE) {
+      result.errors.push(`Message too large: ${tacMessage.length} bytes exceeds maximum of ${MAX_MESSAGE_SIZE} bytes`);
+      return result;
+    }
+
     // Check if input looks like raw JSON (not base64 encoded)
     const trimmed = tacMessage.trim();
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {

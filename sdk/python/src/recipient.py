@@ -177,6 +177,12 @@ class TACRecipient:
             result["errors"].append("Missing TAC-Protocol message")
             return result
 
+        # Check message size limit (100KB max to prevent DoS)
+        MAX_MESSAGE_SIZE = 100 * 1024  # 100KB
+        if len(tac_message) > MAX_MESSAGE_SIZE:
+            result["errors"].append(f"Message too large: {len(tac_message)} bytes exceeds maximum of {MAX_MESSAGE_SIZE} bytes")
+            return result
+
         # Decode base64 message (strictly required - raw JSON not accepted)
         # Check if input looks like raw JSON (not base64 encoded)
         trimmed = tac_message.strip()

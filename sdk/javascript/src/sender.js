@@ -73,6 +73,15 @@ class TACSender {
       );
     }
 
+    // Verify minimum key size (2048 bits = 256 bytes)
+    const keySizeBytes = this.privateKey.asymmetricKeyDetails?.modulusLength;
+    if (keySizeBytes && keySizeBytes < 2048) {
+      throw new TACCryptoError(
+        `RSA key size ${keySizeBytes} bits is too small. Minimum 2048 bits required (3072-bit recommended)`,
+        TACErrorCodes.KEY_SIZE_TOO_SMALL
+      );
+    }
+
     // Always derive public key from private key
     this.publicKey = crypto.createPublicKey(this.privateKey);
 

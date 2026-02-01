@@ -113,6 +113,14 @@ class TACSender:
                 TACErrorCodes.UNSUPPORTED_KEY_TYPE,
             )
 
+        # Verify minimum key size (2048 bits)
+        key_size = self.private_key.key_size
+        if key_size < 2048:
+            raise TACCryptoError(
+                f"RSA key size {key_size} bits is too small. Minimum 2048 bits required (3072-bit recommended)",
+                TACErrorCodes.KEY_SIZE_TOO_SMALL,
+            )
+
         # Always derive public key from private key
         self.public_key = self.private_key.public_key()
 

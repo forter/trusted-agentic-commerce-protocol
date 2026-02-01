@@ -417,20 +417,19 @@ describe('Error Handling and Edge Cases', () => {
         await assert.rejects(async () => await sender.generateTACMessage(), /not supported|unsupported|algorithm/);
       });
 
-      it('should handle key size mismatches', async () => {
-        // Use very small key (not recommended in practice)
+      it('should reject keys smaller than 2048 bits', async () => {
+        // Use very small key - must be rejected for security
         const smallKey = crypto.generateKeyPairSync('rsa', {
-          modulusLength: 1024 // Small key size
+          modulusLength: 1024 // Too small
         });
 
-        // Should not throw for 1024-bit keys (they work, just not recommended)
-        const sender = new TACSender({
-          domain: 'test.com',
-          privateKey: smallKey.privateKey
-        });
-
-        assert.ok(sender);
-        assert.strictEqual(sender.domain, 'test.com');
+        // Should throw for 1024-bit keys (security requirement)
+        assert.throws(() => {
+          new TACSender({
+            domain: 'test.com',
+            privateKey: smallKey.privateKey
+          });
+        }, /key size.*too small|minimum 2048/i);
       });
 
       it('should handle corrupted key data', async () => {

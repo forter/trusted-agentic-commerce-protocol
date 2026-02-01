@@ -329,7 +329,7 @@ describe('Integration Tests', () => {
 
   describe('Performance Tests', () => {
     describe('Large Payload Handling', () => {
-      it('should handle 1MB payload efficiently', async () => {
+      it('should handle moderate payload efficiently', async () => {
         const senderKeys = await generateRSAKey();
         const recipientKeys = await generateRSAKey();
 
@@ -346,11 +346,12 @@ describe('Integration Tests', () => {
         // JWKS exchange
         await setupJWKSExchange(sender, recipient);
 
-        // Create ~1MB payload
+        // Create ~30KB payload (stays under 100KB message limit after encryption + base64)
+        const payloadSize = 30 * 1024;
         const largeData = {
-          bulkData: 'x'.repeat(1024 * 1024), // 1MB string
+          bulkData: 'x'.repeat(payloadSize),
           metadata: {
-            size: 1024 * 1024,
+            size: payloadSize,
             compression: 'none',
             encoding: 'utf8'
           },
@@ -370,7 +371,7 @@ describe('Integration Tests', () => {
 
         // Verify correctness
         assert.strictEqual(result.valid, true);
-        assert.strictEqual(result.data.bulkData.length, 1024 * 1024);
+        assert.strictEqual(result.data.bulkData.length, payloadSize);
 
         // Performance assertions (should complete in reasonable time)
         const encryptionMs = Number(encryptionTime - startTime) / 1_000_000;
@@ -380,7 +381,7 @@ describe('Integration Tests', () => {
         assert.ok(decryptionMs < 5000, `Decryption took ${decryptionMs}ms, should be < 5000ms`);
       });
 
-      it('should handle 10MB payload (stress test)', async () => {
+      it('should reject messages exceeding 100KB limit', async () => {
         const senderKeys = await generateRSAKey();
         const recipientKeys = await generateRSAKey();
 
@@ -397,44 +398,28 @@ describe('Integration Tests', () => {
         // JWKS exchange
         await setupJWKSExchange(sender, recipient);
 
-        // Create ~10MB payload
-        const veryLargeData = {
-          massiveArray: Array.from({ length: 100000 }, (_, i) => ({
-            id: i,
-            data: 'x'.repeat(100), // 100 chars per item
-            timestamp: Date.now() + i
-          })),
-          metadata: { totalSize: '~10MB' }
+        // Create payload that will exceed 100KB limit after encryption + base64
+        const largeData = {
+          bulkData: 'x'.repeat(100 * 1024), // 100KB of data -> ~150KB+ after encryption + base64
+          metadata: { size: '100KB' }
         };
 
-        try {
-          const startTime = process.hrtime.bigint();
+        await sender.addRecipientData('stress-test-service.com', largeData);
+        const tacMessage = await sender.generateTACMessage();
 
-          await sender.addRecipientData('stress-test-service.com', veryLargeData);
-          const tacMessage = await sender.generateTACMessage();
-          const result = await recipient.processTACMessage(tacMessage);
-
-          const endTime = process.hrtime.bigint();
-          const totalMs = Number(endTime - startTime) / 1_000_000;
-
-          assert.strictEqual(result.valid, true);
-          assert.strictEqual(result.data.massiveArray.length, 100000);
-
-          // Should complete within reasonable time (may vary by system)
-          assert.ok(totalMs < 30000, `Total processing took ${totalMs}ms, should be < 30000ms`);
-        } catch (error) {
-          // If it fails due to memory constraints, that's acceptable
-          assert.ok(
-            error.message.includes('memory') || error.message.includes('size') || error.message.includes('limit')
-          );
-        }
+        // Message should be rejected for being too large
+        const result = await recipient.processTACMessage(tacMessage);
+        assert.strictEqual(result.valid, false);
+        assert.ok(result.errors.some(e => e.includes('too large') || e.includes('exceeds maximum')));
       });
     });
 
-    describe('High Recipient Count', () => {
-      it('should handle 100+ recipients efficiently', async () => {
+    describe('Multi-Recipient Count', () => {
+      it('should handle multiple recipients efficiently', async () => {
         const senderKeys = await generateRSAKey();
-        const numRecipients = 100;
+        // Note: Message size limit of 100KB restricts multi-recipient messages
+        // Each JWE adds ~2-3KB, so practical limit is ~30-40 recipients
+        const numRecipients = 10;
 
         const sender = new TACSender({
           domain: 'broadcast-agent.com',
@@ -451,7 +436,7 @@ describe('Integration Tests', () => {
           recipients.push({ domain, keys });
           recipientData[domain] = {
             recipientId: i,
-            personalizedData: `Data specifically for recipient ${i}`,
+            personalizedData: `Data for ${i}`,
             timestamp: Date.now()
           };
         }
@@ -479,13 +464,12 @@ describe('Integration Tests', () => {
         const message = JSON.parse(decodedMessage);
 
         assert.strictEqual(message.recipients.length, numRecipients);
-        assert.ok(totalMs < 60000, `Generation took ${totalMs}ms, should be < 60000ms`);
+        assert.ok(totalMs < 30000, `Generation took ${totalMs}ms, should be < 30000ms`);
 
-        // Test a few recipients can decrypt their data
+        // Test all recipients can decrypt their data
         const senderJWK = await sender.getPublicJWK();
-        const sampleRecipients = recipients.slice(0, 5);
 
-        for (const { domain, keys } of sampleRecipients) {
+        for (const { domain, keys } of recipients) {
           // Each recipient only has their own private key
           const recipientInstance = new TACRecipient({
             domain: domain,
@@ -655,20 +639,28 @@ describe('Integration Tests', () => {
   describe('Security Tests', () => {
     describe('Cryptographic Security', () => {
       it('should enforce minimum key sizes', async () => {
-        // Test RSA minimum key size - our implementation accepts 1024-bit keys
-        // but they're not recommended for production
+        // Test RSA minimum key size - 1024-bit keys must be rejected
         const weakRSAKey = crypto.generateKeyPairSync('rsa', {
-          modulusLength: 1024 // Not recommended but technically works
+          modulusLength: 1024 // Too small, must be rejected
         });
 
-        // Should not throw for 1024-bit keys (they work, just not recommended)
+        // Should throw for 1024-bit keys (security requirement)
+        assert.throws(() => {
+          new TACSender({
+            domain: 'weak-key-agent.com',
+            privateKey: weakRSAKey.privateKey
+          });
+        }, /key size.*too small|minimum 2048/i);
+
+        // 2048-bit keys should work
+        const validKey = crypto.generateKeyPairSync('rsa', {
+          modulusLength: 2048
+        });
         const sender = new TACSender({
-          domain: 'weak-key-agent.com',
-          privateKey: weakRSAKey.privateKey
+          domain: 'valid-key-agent.com',
+          privateKey: validKey.privateKey
         });
-
         assert.ok(sender);
-        assert.strictEqual(sender.domain, 'weak-key-agent.com');
       });
 
       it('should reject weak algorithms', async () => {

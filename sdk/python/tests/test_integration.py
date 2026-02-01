@@ -197,9 +197,7 @@ class TestErrorScenarios(unittest.TestCase):
 
         async def run_test():
             sender = TACSender(domain="agent.com", private_key=generate_rsa_key())
-            sender.fetch_jwks = AsyncMock(
-                side_effect=TACNetworkError("Failed to fetch JWKS", "TAC_JWKS_FETCH_FAILED")
-            )
+            sender.fetch_jwks = AsyncMock(side_effect=TACNetworkError("Failed to fetch JWKS", "TAC_JWKS_FETCH_FAILED"))
 
             await sender.add_recipient_data("merchant.com", {"test": "data"})
 

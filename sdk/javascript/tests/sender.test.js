@@ -759,7 +759,10 @@ describe('TACSender - Message Generation', () => {
       assert.ok(payload.jti, 'Should have jti claim');
       assert.strictEqual(typeof payload.jti, 'string');
       // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-      assert.ok(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.jti), 'jti should be a valid UUID');
+      assert.ok(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.jti),
+        'jti should be a valid UUID'
+      );
     });
 
     it('should generate unique jti for each message', async () => {
@@ -789,11 +792,19 @@ describe('TACSender - Message Generation', () => {
 
       const decodedMessage1 = Buffer.from(tacMessage1, 'base64').toString('utf8');
       const message1 = JSON.parse(decodedMessage1);
-      const { payload: payload1 } = await decryptAndVerifyMessage(message1.recipients[0].jwe, recipientKeys.privateKey, senderPublicKey);
+      const { payload: payload1 } = await decryptAndVerifyMessage(
+        message1.recipients[0].jwe,
+        recipientKeys.privateKey,
+        senderPublicKey
+      );
 
       const decodedMessage2 = Buffer.from(tacMessage2, 'base64').toString('utf8');
       const message2 = JSON.parse(decodedMessage2);
-      const { payload: payload2 } = await decryptAndVerifyMessage(message2.recipients[0].jwe, recipientKeys.privateKey, senderPublicKey);
+      const { payload: payload2 } = await decryptAndVerifyMessage(
+        message2.recipients[0].jwe,
+        recipientKeys.privateKey,
+        senderPublicKey
+      );
 
       assert.notStrictEqual(payload1.jti, payload2.jti, 'Each message should have a unique jti');
     });

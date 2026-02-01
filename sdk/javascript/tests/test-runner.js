@@ -211,15 +211,12 @@ class TestRunner {
   async runAll() {
     console.log(`${colors.blue}${colors.bright}Running all test suites...${colors.reset}\n`);
 
-    let totalDuration = 0;
-
     for (const suite of TEST_SUITES) {
       console.log(`${colors.blue}${colors.bright}🧪 ${suite.name}${colors.reset}`);
       console.log(`${colors.cyan}${suite.description}${colors.reset}\n`);
 
       const result = await runNodeTest(suite.file, suite.timeout);
       this.results.push(result);
-      totalDuration += result.duration;
 
       console.log(''); // Add spacing between tests
     }

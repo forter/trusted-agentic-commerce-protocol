@@ -258,7 +258,7 @@ def get_key_type(key) -> str:
     else:
         raise TACCryptoError(
             f"Unsupported key type: {type(key)}. TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)",
-            TACErrorCodes.UNSUPPORTED_KEY_TYPE
+            TACErrorCodes.UNSUPPORTED_KEY_TYPE,
         )
 
 
@@ -280,7 +280,7 @@ def get_algorithm_for_key(key, use: str = "sig") -> str:
 
     raise TACCryptoError(
         f"Unsupported key type: {key_type}. TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)",
-        TACErrorCodes.UNSUPPORTED_KEY_TYPE
+        TACErrorCodes.UNSUPPORTED_KEY_TYPE,
     )
 
 
@@ -339,8 +339,7 @@ def find_signing_key(keys: List[Dict], key_id: Optional[str] = None) -> Optional
             (
                 k
                 for k in valid_keys
-                if (k.get("use") == "sig" or not k.get("use"))
-                and (k.get("alg") == alg or not k.get("alg"))
+                if (k.get("use") == "sig" or not k.get("use")) and (k.get("alg") == alg or not k.get("alg"))
             ),
             None,
         )

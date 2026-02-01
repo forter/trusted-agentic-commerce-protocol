@@ -49,7 +49,6 @@ class TestKeyManagement(unittest.TestCase):
         self.assertIsNotNone(sender)  # Verify sender was created successfully
 
 
-
 class TestInvalidKeys(unittest.TestCase):
     """Test handling of invalid keys"""
 
@@ -151,7 +150,6 @@ class TestAlgorithmSelection(unittest.TestCase):
 
         algorithm = get_algorithm_for_key(private_key, "sig")
         self.assertEqual(algorithm, "RS256")
-
 
 
 class TestStringKeySupport(unittest.TestCase):

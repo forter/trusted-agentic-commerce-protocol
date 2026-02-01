@@ -73,7 +73,10 @@ async function main(): Promise<void> {
     privateKey = crypto.createPrivateKey(privateKeyPem);
   } catch (err) {
     // If it's an encrypted key, prompt for password
-    if ((err as Error).message.includes("encrypted") || (err as NodeJS.ErrnoException).code === "ERR_OSSL_UNSUPPORTED") {
+    if (
+      (err as Error).message.includes("encrypted") ||
+      (err as NodeJS.ErrnoException).code === "ERR_OSSL_UNSUPPORTED"
+    ) {
       try {
         const password = await readPasswordFromStdin("Enter private key password: ");
         privateKey = crypto.createPrivateKey({

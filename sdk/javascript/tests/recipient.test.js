@@ -1044,7 +1044,10 @@ describe('TACRecipient - Message Processing', () => {
       assert.ok(result.jti, 'Should return jti in result');
       assert.strictEqual(typeof result.jti, 'string');
       // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-      assert.ok(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.jti), 'jti should be a valid UUID');
+      assert.ok(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.jti),
+        'jti should be a valid UUID'
+      );
     });
 
     it('should return null jti for messages without jti claim', async () => {

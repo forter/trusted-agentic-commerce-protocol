@@ -3,7 +3,7 @@
 Agent Auth Protocol SDK for Python
 """
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -40,12 +40,12 @@ setup(
         "trusted-agentic-commerce",
         "tap-protocol",
         "agent",
-        "authentication", 
+        "authentication",
         "agentic-commerce",
         "jwt",
         "jwe",
         "jwks",
-        "encryption"
+        "encryption",
     ],
     project_urls={
         "Bug Reports": "https://github.com/forter/trusted-agentic-commerce-protocol/issues",

@@ -535,7 +535,7 @@ class TestPasswordProtectedKeys(unittest.TestCase):
         sender = TACSender(
             domain="test.com",
             private_key=private_key,
-            password=b"test_password"  # Password won't be used for unencrypted key
+            password=b"test_password",  # Password won't be used for unencrypted key
         )
         self.assertIsNotNone(sender)
 
@@ -561,6 +561,7 @@ class TestPasswordProtectedKeys(unittest.TestCase):
     def test_encrypted_pem_wrong_password_fails(self):
         """Test that wrong password fails to load encrypted key"""
         from cryptography.hazmat.primitives import serialization
+
         from errors import TACCryptoError
 
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -579,6 +580,7 @@ class TestPasswordProtectedKeys(unittest.TestCase):
     def test_encrypted_pem_missing_password_fails(self):
         """Test that encrypted key without password fails"""
         from cryptography.hazmat.primitives import serialization
+
         from errors import TACCryptoError
 
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

@@ -74,15 +74,12 @@ describe("Cryptographic Operations", () => {
         // EC keys are not supported
         const { privateKey } = await jose.generateKeyPair("ES256");
 
-        assert.throws(
-          () => {
-            new TACSender({
-              domain: "test.com",
-              privateKey: privateKey as any,
-            });
-          },
-          /TAC Protocol requires RSA keys/
-        );
+        assert.throws(() => {
+          new TACSender({
+            domain: "test.com",
+            privateKey: privateKey as any,
+          });
+        }, /TAC Protocol requires RSA keys/);
       });
 
       it("should reject DSA keys", () => {
@@ -92,15 +89,12 @@ describe("Cryptographic Operations", () => {
           divisorLength: 256,
         });
 
-        assert.throws(
-          () => {
-            new TACSender({
-              domain: "test.com",
-              privateKey: dsaKey.privateKey,
-            });
-          },
-          /TAC Protocol requires RSA keys/
-        );
+        assert.throws(() => {
+          new TACSender({
+            domain: "test.com",
+            privateKey: dsaKey.privateKey,
+          });
+        }, /TAC Protocol requires RSA keys/);
       });
 
       it("should handle invalid PEM strings gracefully", () => {

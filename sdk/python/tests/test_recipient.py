@@ -596,9 +596,7 @@ class TestClockSkewBoundary(unittest.TestCase):
         """Test acceptance of JWT exactly at clock tolerance boundary"""
         clock_tolerance = 60  # 1 minute
         recipient = TACRecipient(
-            domain="merchant.com",
-            private_key=self.recipient_private_key,
-            clock_tolerance=clock_tolerance
+            domain="merchant.com", private_key=self.recipient_private_key, clock_tolerance=clock_tolerance
         )
 
         self.assertEqual(recipient.clock_tolerance, clock_tolerance)
@@ -609,9 +607,7 @@ class TestClockSkewBoundary(unittest.TestCase):
 
         for tolerance in test_values:
             recipient = TACRecipient(
-                domain="merchant.com",
-                private_key=self.recipient_private_key,
-                clock_tolerance=tolerance
+                domain="merchant.com", private_key=self.recipient_private_key, clock_tolerance=tolerance
             )
             self.assertEqual(recipient.clock_tolerance, tolerance)
 
@@ -620,9 +616,7 @@ class TestClockSkewBoundary(unittest.TestCase):
     def test_strict_tolerance_rejects_future_jwt(self, mock_recipient_fetch, mock_sender_fetch):
         """Test that strict tolerance rejects JWTs with future iat"""
         strict_recipient = TACRecipient(
-            domain="merchant.com",
-            private_key=self.recipient_private_key,
-            clock_tolerance=10  # Only 10 seconds
+            domain="merchant.com", private_key=self.recipient_private_key, clock_tolerance=10  # Only 10 seconds
         )
 
         async def run_test():

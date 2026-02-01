@@ -150,13 +150,13 @@ const privateKey = crypto.createPrivateKey({
 // Use with TACSender
 const sender = new TACSender({
   domain: 'agent.example.com',
-  privateKey: privateKey  // Pass the decrypted KeyObject
+  privateKey: privateKey // Pass the decrypted KeyObject
 });
 
 // Use with TACRecipient
 const recipient = new TACRecipient({
   domain: 'merchant.example.com',
-  privateKey: privateKey  // Pass the decrypted KeyObject
+  privateKey: privateKey // Pass the decrypted KeyObject
 });
 ```
 
@@ -449,19 +449,20 @@ node cli/tacp-send.js -k sender.pem -d sender.example.com -m '{"merchant.com": {
 
 **Options:**
 
-| Option | Description |
-|--------|-------------|
-| `-k, --key <file>` | Sender's private key (PEM file) **[required]** |
-| `-d, --domain <domain>` | Sender's domain (issuer) **[required]** |
-| `-p, --password <password>` | Password for encrypted private key |
-| `-m, --message <json>` | Message as JSON: `{"recipient.com": {...}, ...}` |
-| `-i, --input <file>` | Input message file (default: stdin) |
-| `-o, --output <file>` | Output file (default: stdout) |
-| `--ttl <seconds>` | JWT TTL in seconds (default: 3600) |
-| `--raw` | Output only base64 message |
-| `-q, --quiet` | Suppress warnings |
+| Option                      | Description                                      |
+| --------------------------- | ------------------------------------------------ |
+| `-k, --key <file>`          | Sender's private key (PEM file) **[required]**   |
+| `-d, --domain <domain>`     | Sender's domain (issuer) **[required]**          |
+| `-p, --password <password>` | Password for encrypted private key               |
+| `-m, --message <json>`      | Message as JSON: `{"recipient.com": {...}, ...}` |
+| `-i, --input <file>`        | Input message file (default: stdin)              |
+| `-o, --output <file>`       | Output file (default: stdout)                    |
+| `--ttl <seconds>`           | JWT TTL in seconds (default: 3600)               |
+| `--raw`                     | Output only base64 message                       |
+| `-q, --quiet`               | Suppress warnings                                |
 
 **Message Format:**
+
 ```json
 {
   "recipient1.com": { "data": "for recipient 1" },
@@ -495,32 +496,32 @@ node cli/tacp-receive.js -k recipient.pem -d merchant.com -m "eyJ..." --allow-ex
 
 **Options:**
 
-| Option | Description |
-|--------|-------------|
-| `-k, --key <file>` | Recipient's private key (PEM file) **[required]** |
-| `-d, --domain <domain>` | Recipient's domain **[required]** |
-| `-p, --password <password>` | Password for encrypted private key |
-| `-m, --message <base64>` | TAC message as base64 string |
-| `-i, --input <file>` | Input file (default: stdin) |
-| `-o, --output <file>` | Output file (default: stdout) |
-| `--raw` | Output only payload, no metadata |
-| `--allow-expired` | Treat expired token as warning instead of error |
-| `-v, --verbose` | Verbose output with warnings |
-| `-q, --quiet` | Suppress warnings |
+| Option                      | Description                                       |
+| --------------------------- | ------------------------------------------------- |
+| `-k, --key <file>`          | Recipient's private key (PEM file) **[required]** |
+| `-d, --domain <domain>`     | Recipient's domain **[required]**                 |
+| `-p, --password <password>` | Password for encrypted private key                |
+| `-m, --message <base64>`    | TAC message as base64 string                      |
+| `-i, --input <file>`        | Input file (default: stdin)                       |
+| `-o, --output <file>`       | Output file (default: stdout)                     |
+| `--raw`                     | Output only payload, no metadata                  |
+| `--allow-expired`           | Treat expired token as warning instead of error   |
+| `-v, --verbose`             | Verbose output with warnings                      |
+| `-q, --quiet`               | Suppress warnings                                 |
 
 ### Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Invalid arguments |
-| 3 | File/IO error |
-| 4 | Invalid key |
-| 5 | Decryption failed |
-| 6 | Signature verification failed |
-| 7 | JWT expired/invalid |
-| 8 | Network error (JWKS fetch) |
+| Code | Meaning                       |
+| ---- | ----------------------------- |
+| 0    | Success                       |
+| 1    | General error                 |
+| 2    | Invalid arguments             |
+| 3    | File/IO error                 |
+| 4    | Invalid key                   |
+| 5    | Decryption failed             |
+| 6    | Signature verification failed |
+| 7    | JWT expired/invalid           |
+| 8    | Network error (JWKS fetch)    |
 
 ## Development
 
@@ -557,16 +558,16 @@ npm run test:watch
 
 ### Test Suites
 
-| Suite | Description |
-|-------|-------------|
-| `crypto` | Key management, algorithm selection, and cryptographic primitives |
-| `cache` | JWKS caching behavior, TTL expiration, concurrency, and race conditions |
-| `network` | JWKS fetching, retry logic with exponential backoff, timeouts, and error handling |
-| `sender` | TACSender message creation, multi-recipient encryption, JWT signing |
-| `recipient` | TACRecipient message validation, signature verification, decryption |
-| `errors` | Input validation, runtime errors, security edge cases, memory exhaustion |
-| `integration` | Full end-to-end scenarios, performance tests, security validation |
-| `utils` | Helper functions, key operations, base64 encoding, JWK conversion |
+| Suite         | Description                                                                       |
+| ------------- | --------------------------------------------------------------------------------- |
+| `crypto`      | Key management, algorithm selection, and cryptographic primitives                 |
+| `cache`       | JWKS caching behavior, TTL expiration, concurrency, and race conditions           |
+| `network`     | JWKS fetching, retry logic with exponential backoff, timeouts, and error handling |
+| `sender`      | TACSender message creation, multi-recipient encryption, JWT signing               |
+| `recipient`   | TACRecipient message validation, signature verification, decryption               |
+| `errors`      | Input validation, runtime errors, security edge cases, memory exhaustion          |
+| `integration` | Full end-to-end scenarios, performance tests, security validation                 |
+| `utils`       | Helper functions, key operations, base64 encoding, JWK conversion                 |
 
 ### Linting & Formatting
 

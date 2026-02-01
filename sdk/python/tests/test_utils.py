@@ -392,9 +392,7 @@ class TestPerformance(unittest.TestCase):
         # Create large RSA key set
         keys = []
         for i in range(1000):
-            keys.append(
-                {"kty": "RSA", "kid": f"key-{i}", "use": "sig" if i % 3 == 0 else "enc"}
-            )
+            keys.append({"kty": "RSA", "kid": f"key-{i}", "use": "sig" if i % 3 == 0 else "enc"})
 
         # Finding should be fast even with many keys
         start_time = time.time()

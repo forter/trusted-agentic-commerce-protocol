@@ -182,7 +182,7 @@ function readPasswordFromStdin(prompt) {
       // If not a TTY, read password from first line of stdin
       let data = '';
       process.stdin.setEncoding('utf8');
-      process.stdin.once('data', (chunk) => {
+      process.stdin.once('data', chunk => {
         data = chunk.toString().split('\n')[0];
         resolve(data);
       });
@@ -264,7 +264,7 @@ function readStdin() {
       clearTimeout(timeout);
       resolve(data.trim());
     });
-    process.stdin.on('error', (err) => {
+    process.stdin.on('error', err => {
       clearTimeout(timeout);
       reject(err);
     });

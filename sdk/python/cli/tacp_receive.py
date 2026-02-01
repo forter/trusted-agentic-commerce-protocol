@@ -111,10 +111,12 @@ async def main_async(args: argparse.Namespace) -> int:
     # Try to load key without password first, prompt if encrypted
     try:
         from cryptography.hazmat.primitives import serialization
+
         serialization.load_pem_private_key(private_key_pem.encode(), password=None)
     except TypeError:
         # Key is encrypted, prompt for password
         import getpass
+
         try:
             password_str = getpass.getpass("Enter private key password: ")
             password = password_str.encode() if password_str else None
@@ -169,9 +171,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
     if args.allow_expired and not result.get("valid"):
         expiration_errors = [
-            e
-            for e in errors
-            if "exp" in e.lower() or "expired" in e.lower() or "timestamp check failed" in e.lower()
+            e for e in errors if "exp" in e.lower() or "expired" in e.lower() or "timestamp check failed" in e.lower()
         ]
         other_errors = [
             e

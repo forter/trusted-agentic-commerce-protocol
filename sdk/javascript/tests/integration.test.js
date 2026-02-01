@@ -115,8 +115,8 @@ describe('Integration Tests', () => {
         const agentJWK = await agent.getPublicJWK();
 
         agent.fetchJWKS = async domain => {
-          if (domain === 'premium-electronics.com') return [merchantJWK];
-          if (domain === 'forter.com') return [forterJWK];
+          if (domain === 'premium-electronics.com') {return [merchantJWK];}
+          if (domain === 'forter.com') {return [forterJWK];}
           throw new Error(`Unknown domain: ${domain}`);
         };
 

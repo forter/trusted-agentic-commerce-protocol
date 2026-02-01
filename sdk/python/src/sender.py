@@ -110,7 +110,7 @@ class TACSender:
         if not isinstance(self.private_key, rsa.RSAPrivateKey):
             raise TACCryptoError(
                 "TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)",
-                TACErrorCodes.UNSUPPORTED_KEY_TYPE
+                TACErrorCodes.UNSUPPORTED_KEY_TYPE,
             )
 
         # Always derive public key from private key

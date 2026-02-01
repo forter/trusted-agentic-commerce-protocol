@@ -124,19 +124,21 @@ async function main() {
 
   // Handle --allow-expired: move expiration errors to warnings
   let errors = [...result.errors];
-  let warnings = [];
+  const warnings = [];
   let treatAsValid = result.valid;
 
   if (options.allowExpired && !result.valid) {
-    const expirationErrors = errors.filter(e =>
-      e.toLowerCase().includes('exp') ||
-      e.toLowerCase().includes('expired') ||
-      e.toLowerCase().includes('timestamp check failed')
+    const expirationErrors = errors.filter(
+      e =>
+        e.toLowerCase().includes('exp') ||
+        e.toLowerCase().includes('expired') ||
+        e.toLowerCase().includes('timestamp check failed')
     );
-    const otherErrors = errors.filter(e =>
-      !e.toLowerCase().includes('exp') &&
-      !e.toLowerCase().includes('expired') &&
-      !e.toLowerCase().includes('timestamp check failed')
+    const otherErrors = errors.filter(
+      e =>
+        !e.toLowerCase().includes('exp') &&
+        !e.toLowerCase().includes('expired') &&
+        !e.toLowerCase().includes('timestamp check failed')
     );
 
     if (expirationErrors.length > 0 && otherErrors.length === 0) {
@@ -217,7 +219,7 @@ function readPasswordFromStdin(prompt) {
       // If not a TTY, read password from first line of stdin
       let data = '';
       process.stdin.setEncoding('utf8');
-      process.stdin.once('data', (chunk) => {
+      process.stdin.once('data', chunk => {
         data = chunk.toString().split('\n')[0];
         resolve(data);
       });
@@ -296,7 +298,7 @@ function readStdin() {
       clearTimeout(timeout);
       resolve(data.trim());
     });
-    process.stdin.on('error', (err) => {
+    process.stdin.on('error', err => {
       clearTimeout(timeout);
       reject(err);
     });

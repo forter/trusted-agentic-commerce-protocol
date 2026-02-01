@@ -232,7 +232,7 @@ export async function fetchJWKSWithRetry(domain: string, options: FetchOptions =
     }
 
     throw new TACNetworkError(
-      `Failed to fetch JWKS from ${domain} after ${maxRetries + 1} attempts: ${lastError?.message || 'Unknown error'}`,
+      `Failed to fetch JWKS from ${domain} after ${maxRetries + 1} attempts: ${lastError?.message || "Unknown error"}`,
       TACErrorCodes.JWKS_FETCH_FAILED
     );
   })();
@@ -392,7 +392,7 @@ export async function publicKeyToJWK(publicKey: KeyObject | jose.KeyLike, keyId?
 
   // Generate key ID if not provided
   if (!keyId) {
-    if ('export' in publicKey) {
+    if ("export" in publicKey) {
       // For KeyObject, use DER export
       const derBytes = publicKey.export({
         type: "spki",

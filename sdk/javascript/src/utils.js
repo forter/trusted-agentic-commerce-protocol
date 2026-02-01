@@ -345,8 +345,8 @@ export async function publicKeyToJWK(publicKey, keyId = null) {
     throw new TACCryptoError('No public key provided', TACErrorCodes.NO_PUBLIC_KEY);
   }
 
-  // Verify key type is RSA
-  const keyType = getKeyType(publicKey);
+  // Verify key type is RSA (getKeyType throws if invalid)
+  getKeyType(publicKey);
 
   const jose = await import('jose');
 

@@ -21,15 +21,20 @@ A secure authentication and data encryption protocol that allows AI agents, merc
 Trusted Agentic Commerce Protocol relies on:
 
 - **JWS+JWE Security**: JWT signatures (JWS) wrapped in JSON Web Encryption (JWE) for both authentication and confidentiality
-- **RSA & EC Key Support**: Compatible with RSA and Elliptic Curve (P-256/384/521) keys for signing and encryption
+- **RSA Key Support**: Compatible with RSA keys (minimum 2048-bit, 3072-bit recommended) for signing and encryption
 - **JSON Web Key Sets (JWKS)**: Standard key distribution at `.well-known/jwks.json` endpoints
 
-#### Option 1: Generate RSA Keys (Default - Recommended for compatibility)
+### Generate RSA Keys
+
+> **Security Note**: For long-term security, we recommend using 3072-bit or 4096-bit RSA keys. The 2048-bit example below is the minimum acceptable key size.
 
 ```bash
-# Generate RSA key pair
-openssl genpkey -algorithm RSA -out private.pem -pkeyopt rsa_keygen_bits:2048
+# Generate RSA key pair (3072-bit recommended for long-term security)
+openssl genpkey -algorithm RSA -out private.pem -pkeyopt rsa_keygen_bits:3072
 openssl rsa -in private.pem -pubout -out public.pem
+
+# For legacy compatibility only (minimum acceptable):
+# openssl genpkey -algorithm RSA -out private.pem -pkeyopt rsa_keygen_bits:2048
 
 # Extract values for JWKS publishing:
 # Extract modulus (n) - base64url encoded (single line output)
@@ -41,34 +46,10 @@ openssl rsa -in public.pem -pubin -outform DER 2>/dev/null | \
   openssl dgst -sha256 -binary | base64 | tr -d '=' | tr '/+' '_-'
 ```
 
-#### Option 2: Generate Elliptic Curve Keys (Faster, smaller keys)
-
-```bash
-# Generate EC key pair (P-256 curve)
-openssl ecparam -name prime256v1 -genkey -out private.pem
-openssl ec -in private.pem -pubout -out public.pem
-
-# Extract values for JWKS publishing:
-# Extract x coordinate (base64url encoded)
-openssl ec -in public.pem -pubin -text -noout 2>/dev/null | \
-  grep -A 3 'pub:' | tail -3 | tr -d ' \n:' | xxd -r -p | \
-  head -c 32 | base64 | tr -d '=' | tr '/+' '_-'
-
-# Extract y coordinate (base64url encoded)
-openssl ec -in public.pem -pubin -text -noout 2>/dev/null | \
-  grep -A 3 'pub:' | tail -3 | tr -d ' \n:' | xxd -r -p | \
-  tail -c 32 | base64 | tr -d '=' | tr '/+' '_-'
-
-# Generate key ID (kid) - SHA-256 hash of public key
-openssl ec -in public.pem -pubin -outform DER 2>/dev/null | \
-  openssl dgst -sha256 -binary | base64 | tr -d '=' | tr '/+' '_-'
-```
-
 ### Publishing Keys
 
 Publish your public keys at `https://your-domain.com/.well-known/jwks.json`:
 
-**For RSA keys:**
 ```json
 {
   "keys": [
@@ -77,22 +58,6 @@ Publish your public keys at `https://your-domain.com/.well-known/jwks.json`:
       "n": "<output from n extraction>",
       "e": "AQAB",
       "alg": "RS256",
-      "kid": "<output from kid generation>"
-    }
-  ]
-}
-```
-
-**For EC keys (P-256):**
-```json
-{
-  "keys": [
-    {
-      "kty": "EC",
-      "crv": "P-256",
-      "x": "<output from x extraction>",
-      "y": "<output from y extraction>",
-      "alg": "ES256",
       "kid": "<output from kid generation>"
     }
   ]
@@ -138,19 +103,90 @@ Typically Merchant and/or Merchant Vendor:
 
 ## Security Best Practices
 
-1. **Key Management**
-   - Store private keys securely
-   - Rotate keys regularly
-   - Never commit keys to version control
+### 1. Key Management
 
-2. **HTTPS Only**
-   - Always use HTTPS in production
-   - Verify SSL certificates
+- **Key Size**: Use 3072-bit RSA keys (or 4096-bit for highest security)
+- **Storage**: Store private keys securely using hardware security modules (HSM), key management services (AWS KMS, Azure Key Vault, HashiCorp Vault), or encrypted at rest
+- **Version Control**: Never commit private keys to version control
+- **Access Control**: Limit access to private keys to essential personnel and services only
 
-3. **JWT Validation**
-   - Check JWT expiry
-   - Verify issuer claims
-   - Validate signing algorithm
+### 2. Key Rotation
+
+Regular key rotation limits the impact of potential key compromise:
+
+- **Rotation Schedule**: Rotate keys at least annually, or more frequently for high-security applications
+- **Grace Period**: When rotating keys:
+  1. Add the new public key to your JWKS with a new `kid`
+  2. Keep both old and new keys in JWKS for a transition period (e.g., 24-48 hours)
+  3. Switch to signing with the new private key
+  4. Remove the old public key from JWKS after the transition period
+- **Key Expiration**: Consider using the `exp` field in JWK to indicate when keys should no longer be used
+
+### 3. Key Revocation
+
+If a private key is compromised:
+
+1. **Immediate Action**: Remove the compromised public key from your JWKS immediately
+2. **Generate New Key**: Create a new key pair and publish the new public key
+3. **Notify Partners**: Inform affected recipients of the compromise window
+4. **Audit**: Review logs to identify any messages signed during the compromise window
+5. **Short TTL**: Use short JWT TTL values (default 1 hour) to limit the window of potential misuse
+
+### 4. HTTPS Only
+
+- Always use HTTPS in production for JWKS endpoints
+- Verify SSL certificates
+- Use TLS 1.2 or higher
+
+### 5. JWT Validation
+
+- **Expiration**: Always check JWT `exp` claim; reject expired tokens
+- **Issuer**: Verify `iss` claim matches expected sender domain
+- **Audience**: Verify `aud` claim matches your domain
+- **Algorithm**: Validate the signing algorithm matches expected values
+
+### 6. Replay Attack Prevention (CRITICAL)
+
+Recipients **MUST** implement replay attack prevention by tracking JWT IDs (`jti` claims):
+
+```javascript
+// Example: Track processed jti values
+const processedJtis = new Map(); // or use Redis, database, etc.
+
+async function processMessage(tacMessage) {
+  const result = await recipient.processTACMessage(tacMessage);
+
+  if (result.valid && result.jti) {
+    // Check if we've seen this jti before
+    if (processedJtis.has(result.jti)) {
+      throw new Error('Replay attack detected: duplicate jti');
+    }
+
+    // Store jti with expiration time
+    processedJtis.set(result.jti, {
+      processed: Date.now(),
+      expires: result.expires
+    });
+
+    // Clean up expired entries periodically
+    cleanupExpiredJtis();
+  }
+
+  return result;
+}
+```
+
+**Implementation Requirements:**
+- Store `jti` values for at least the JWT TTL duration (default 1 hour)
+- Use persistent storage (Redis, database) for production deployments
+- Implement periodic cleanup of expired `jti` entries
+- Consider using a bloom filter for high-throughput scenarios
+
+### 7. Clock Synchronization
+
+- Ensure all systems use NTP for time synchronization
+- The default clock tolerance is 5 minutes (`clockTolerance: 300`)
+- For high-security scenarios, consider reducing tolerance and ensuring tight clock sync
 
 ## License
 

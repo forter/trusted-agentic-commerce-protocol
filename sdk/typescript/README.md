@@ -9,19 +9,41 @@ TypeScript SDK implementing the [Trusted Agentic Commerce Protocol,](https://www
 
 ## Getting Started
 
-- [Basic Usage](#basic-usage)
-- [Advanced Usage](#advanced-usage)
-  - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
-  - [Sending to Multiple Recipients](#sending-to-multiple-recipients)
-  - [Setting Up Callbacks and Notifications](#setting-up-callbacks-and-notifications)
-- [Express.js Integration](#expressjs-integration)
-- [TypeScript Schema Types](#typescript-schema-types)
-- [Manual JWKS Management](#manual-jwks-management)
-- [Building and Testing](#building-and-testing)
-- [API Reference](#api-reference)
-- [Schema](../../schema/)
-- [Features](#features)
-- [Requirements](#requirements)
+- [Trusted Agentic Commerce Protocol SDK for TypeScript](#trusted-agentic-commerce-protocol-sdk-for-typescript)
+  - [Getting Started](#getting-started)
+  - [Basic Usage](#basic-usage)
+    - [For Senders (AI Agents)](#for-senders-ai-agents)
+    - [For Recipients (Merchants)](#for-recipients-merchants)
+  - [Advanced Usage](#advanced-usage)
+    - [Using Password-Protected Private Keys](#using-password-protected-private-keys)
+    - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
+      - [Example: Forter Integration](#example-forter-integration)
+    - [Sending to Multiple Recipients](#sending-to-multiple-recipients)
+    - [Setting Up Callbacks and Notifications](#setting-up-callbacks-and-notifications)
+  - [Express.js Integration](#expressjs-integration)
+  - [Manual JWKS Management](#manual-jwks-management)
+  - [TypeScript Schema Types](#typescript-schema-types)
+  - [Command Line Interface](#command-line-interface)
+    - [Installation](#installation)
+    - [tacp-send](#tacp-send)
+    - [tacp-receive](#tacp-receive)
+    - [Exit Codes](#exit-codes)
+  - [Development](#development)
+    - [Installation \& Building](#installation--building)
+    - [Running Tests](#running-tests)
+    - [Test Suites](#test-suites)
+    - [Linting \& Formatting](#linting--formatting)
+  - [API Reference](#api-reference)
+    - [TACSender](#tacsender)
+      - [Constructor Options](#constructor-options)
+      - [Methods](#methods)
+    - [TACRecipient](#tacrecipient)
+      - [Constructor Options](#constructor-options-1)
+      - [Methods](#methods-1)
+      - [Static Methods](#static-methods)
+  - [Features](#features)
+  - [Requirements](#requirements)
+  - [License](#license)
 
 ## Basic Usage
 
@@ -31,7 +53,7 @@ TypeScript SDK implementing the [Trusted Agentic Commerce Protocol,](https://www
 import TACSender from "./sender.js";
 
 // Get private key from environment, vault or secret manager
-const agentPrivateKey = process.env.AGENT_PRIVATE_KEY!; // RSA or EC private key in PEM format
+const agentPrivateKey = process.env.AGENT_PRIVATE_KEY!; // RSA private key in PEM format
 
 // Initialize sender
 const sender = new TACSender({
@@ -78,7 +100,7 @@ const response = await fetch("https://merchant.com/api/purchase", {
 import TACRecipient from "./recipient.js";
 
 // Get private key from environment, vault or secret manager
-const merchantPrivateKey = process.env.MERCHANT_PRIVATE_KEY!; // RSA or EC private key in PEM format
+const merchantPrivateKey = process.env.MERCHANT_PRIVATE_KEY!; // RSA private key in PEM format
 
 // Initialize recipient
 const recipient = new TACRecipient({
@@ -107,6 +129,38 @@ if (result.valid) {
 ```
 
 ## Advanced Usage
+
+### Using Password-Protected Private Keys
+
+If your private key is encrypted with a password, you need to decrypt it before passing to the SDK:
+
+```typescript
+import crypto, { KeyObject } from 'node:crypto';
+import fs from 'node:fs';
+import { TACSender, TACRecipient } from 'trusted-agentic-commerce-protocol';
+
+// Read encrypted PEM file
+const encryptedPem = fs.readFileSync('encrypted-key.pem', 'utf8');
+const password = process.env.KEY_PASSWORD;
+
+// Decrypt the private key
+const privateKey: KeyObject = crypto.createPrivateKey({
+  key: encryptedPem,
+  passphrase: password
+});
+
+// Use with TACSender
+const sender = new TACSender({
+  domain: 'agent.example.com',
+  privateKey: privateKey  // Pass the decrypted KeyObject
+});
+
+// Use with TACRecipient
+const recipient = new TACRecipient({
+  domain: 'merchant.example.com',
+  privateKey: privateKey  // Pass the decrypted KeyObject
+});
+```
 
 ### Collecting Vendor-Specific Data
 
@@ -388,17 +442,176 @@ const userData: User = {
 };
 ```
 
+## Command Line Interface
+
+The SDK includes CLI tools for testing and debugging TAC Protocol messages.
+
+### Installation
+
+```bash
+npm install
+npm run build
+npm link  # Optional: makes tacp-send and tacp-receive available globally
+```
+
+### tacp-send
+
+Sign and encrypt TAC Protocol messages.
+
+```bash
+# Basic usage - message includes recipients as keys
+npx tacp-send -k sender.pem -d sender.example.com \
+  -m '{"merchant.com": {"user": {"email": "john@example.com"}}}'
+
+# Multiple recipients
+npx tacp-send -k sender.pem -d sender.example.com \
+  -m '{"merchant.com": {"amount": 100}, "airline.com": {"flight": "AA123"}}'
+
+# With password-protected key
+npx tacp-send -k encrypted.pem -d sender.example.com -p "mypassword" \
+  -m '{"merchant.com": {"order": "123"}}'
+
+# From file
+npx tacp-send -k sender.pem -d sender.example.com -i message.json
+
+# From stdin
+echo '{"merchant.com": {"amount": 100}}' | npx tacp-send -k sender.pem -d sender.example.com
+
+# Raw output (base64 only, no JSON wrapper)
+npx tacp-send -k sender.pem -d sender.example.com -m '{"merchant.com": {}}' --raw
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-k, --key <file>` | Sender's private key (PEM file) **[required]** |
+| `-d, --domain <domain>` | Sender's domain (issuer) **[required]** |
+| `-p, --password <password>` | Password for encrypted private key |
+| `-m, --message <json>` | Message as JSON: `{"recipient.com": {...}, ...}` |
+| `-i, --input <file>` | Input message file (default: stdin) |
+| `-o, --output <file>` | Output file (default: stdout) |
+| `--ttl <seconds>` | JWT TTL in seconds (default: 3600) |
+| `--raw` | Output only base64 message |
+| `-q, --quiet` | Suppress warnings |
+
+**Message Format:**
+```json
+{
+  "recipient1.com": { "data": "for recipient 1" },
+  "recipient2.com": { "data": "for recipient 2" }
+}
+```
+
+### tacp-receive
+
+Decrypt and verify TAC Protocol messages.
+
+```bash
+# Basic usage
+npx tacp-receive -k recipient.pem -d merchant.com -m "eyJ2ZXJzaW9uIjoiMj..."
+
+# With password-protected key
+npx tacp-receive -k encrypted.pem -d merchant.com -p "mypassword" -m "eyJ..."
+
+# From file
+npx tacp-receive -k recipient.pem -d merchant.com -i message.tac
+
+# From stdin
+echo "eyJ..." | npx tacp-receive -k recipient.pem -d merchant.com
+
+# Raw output (payload only)
+npx tacp-receive -k recipient.pem -d merchant.com -m "eyJ..." --raw
+
+# Allow expired tokens (useful for testing/debugging)
+npx tacp-receive -k recipient.pem -d merchant.com -m "eyJ..." --allow-expired
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-k, --key <file>` | Recipient's private key (PEM file) **[required]** |
+| `-d, --domain <domain>` | Recipient's domain **[required]** |
+| `-p, --password <password>` | Password for encrypted private key |
+| `-m, --message <base64>` | TAC message as base64 string |
+| `-i, --input <file>` | Input file (default: stdin) |
+| `-o, --output <file>` | Output file (default: stdout) |
+| `--raw` | Output only payload, no metadata |
+| `--allow-expired` | Treat expired token as warning instead of error |
+| `-v, --verbose` | Verbose output with warnings |
+| `-q, --quiet` | Suppress warnings |
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error |
+| 2 | Invalid arguments |
+| 3 | File/IO error |
+| 4 | Invalid key |
+| 5 | Decryption failed |
+| 6 | Signature verification failed |
+| 7 | JWT expired/invalid |
+| 8 | Network error (JWKS fetch) |
+
 ## Development
 
-### Building and Testing
+### Installation & Building
 
 ```bash
 npm install                # Install dependencies
 npm run build              # Build TypeScript code
-npm test                   # Run all tests
-npm run lint               # Run linting
-npm run lint:fix           # Auto-fix linting issues
 npm run dev                # Watch mode for development
+```
+
+### Running Tests
+
+The SDK includes a comprehensive test suite covering all aspects of the TAC Protocol implementation. Tests are written in TypeScript and compiled before running.
+
+```bash
+# Run all tests (builds first)
+npm test
+
+# Run specific test suite
+npm run test:crypto         # Cryptographic operations
+npm run test:cache          # JWKS cache management
+npm run test:network        # Network operations & retries
+npm run test:sender         # TACSender message creation
+npm run test:recipient      # TACRecipient message processing
+npm run test:errors         # Error handling & edge cases
+npm run test:integration    # End-to-end scenarios
+npm run test:utils          # Utility functions
+
+# List available test suites
+npm run test:list
+
+# Watch mode (re-run on changes)
+npm run test:watch
+```
+
+### Test Suites
+
+| Suite | Description |
+|-------|-------------|
+| `crypto` | Key management, algorithm selection, and cryptographic primitives |
+| `cache` | JWKS caching behavior, TTL expiration, concurrency, and race conditions |
+| `network` | JWKS fetching, retry logic with exponential backoff, timeouts, and error handling |
+| `sender` | TACSender message creation, multi-recipient encryption, JWT signing |
+| `recipient` | TACRecipient message validation, signature verification, decryption |
+| `errors` | Input validation, runtime errors, security edge cases, memory exhaustion |
+| `integration` | Full end-to-end scenarios, performance tests, security validation |
+| `utils` | Helper functions, key operations, base64 encoding, JWK conversion |
+
+### Linting & Formatting
+
+```bash
+npm run lint                # Run ESLint
+npm run lint:fix            # Auto-fix linting issues
+npm run format              # Format with Prettier
+npm run format:check        # Check formatting
+npm run fix                 # Format + lint fix
 ```
 
 ## API Reference
@@ -408,7 +621,7 @@ npm run dev                # Watch mode for development
 #### Constructor Options
 
 - `domain` (required) - Your agent's domain (used as JWT issuer)
-- `privateKey` (required) - RSA or EC private key for signing (KeyObject or PEM string)
+- `privateKey` (required) - RSA private key for signing (KeyObject or PEM string)
 - `ttl` - JWT validity in seconds (default: 3600)
 - `cacheTimeout` - JWKS cache TTL in ms (default: 3600000)
 - `maxRetries` - Max JWKS fetch retries (default: 3)
@@ -416,7 +629,7 @@ npm run dev                # Watch mode for development
 
 #### Methods
 
-- `setPrivateKey(privateKey)` - Set RSA or EC private key (public key auto-derived)
+- `setPrivateKey(privateKey)` - Set RSA private key (public key auto-derived)
 - `generateKeyId()` - Get key ID for current private key
 - `addRecipientData(domain, data)` - Add data for a specific recipient domain (async)
 - `setRecipientsData(recipientsData)` - Set all recipients data (clears existing first, async)
@@ -431,14 +644,14 @@ npm run dev                # Watch mode for development
 #### Constructor Options
 
 - `domain` (required) - Your domain (used to find your encrypted data)
-- `privateKey` (required) - RSA or EC private key for decryption (KeyObject or PEM string)
+- `privateKey` (required) - RSA private key for decryption (KeyObject or PEM string)
 - `cacheTimeout` - JWKS cache TTL in ms (default: 3600000)
 - `maxRetries` - Max JWKS fetch retries (default: 3)
 - `retryDelay` - Initial retry delay in ms (default: 1000)
 
 #### Methods
 
-- `setPrivateKey(privateKey)` - Set RSA or EC private key (public key auto-derived)
+- `setPrivateKey(privateKey)` - Set RSA private key (public key auto-derived)
 - `generateKeyId()` - Get key ID for current private key
 - `processTACMessage(tacMessage)` - Process and decrypt TAC-Protocol message (async)
 - `fetchJWKS(domain, forceRefresh?)` - Get sender's public keys (async)
@@ -452,7 +665,7 @@ npm run dev                # Watch mode for development
 ## Features
 
 - **JWS+JWE Security**: JWT signatures (JWS) wrapped in JSON Web Encryption (JWE) for both authentication and confidentiality
-- **RSA & EC Key Support**: Compatible with RSA and Elliptic Curve (P-256/384/521) keys
+- **RSA Key Support**: Compatible with RSA keys (minimum 2048-bit, 3072-bit recommended)
 - **Multi-Recipient Encryption**: Single message encrypted for multiple recipients with data isolation
 - **Key Rotation Support**: Automatic key ID (`kid`) handling for seamless key rotation
 - **JWKS Integration**: Standard `.well-known/jwks.json` endpoint support

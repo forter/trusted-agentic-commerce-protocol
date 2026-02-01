@@ -7,13 +7,14 @@ import base64
 import hashlib
 import json
 import time
+import uuid
 from typing import Any, Dict, List, Optional, Union
 
 import jose.jwt
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import rsa
 from jose import jwe
-from jose.backends import ECKey, RSAKey
+from jose.backends import RSAKey
 
 try:
     from .errors import TACCryptoError, TACErrorCodes, TACNetworkError, TACValidationError
@@ -55,17 +56,21 @@ class TACSender:
         cache_timeout: int = 3600000,
         max_retries: int = 3,
         retry_delay: int = 1000,
+        password: Optional[bytes] = None,
+        hide_user_agent_version: bool = False,
     ):
         """
         Initialize TACSender
 
         Args:
             domain: Domain of the agent (required, used as 'iss' in JWT)
-            private_key: Private key for signing - RSA or EC (required)
+            private_key: Private key for signing (required)
             ttl: JWT expiry time in seconds (default: 3600)
             cache_timeout: JWKS cache timeout in ms (default: 3600000)
             max_retries: Max retry attempts for network requests (default: 3)
             retry_delay: Retry delay in ms (default: 1000)
+            password: Password for encrypted private keys (default: None)
+            hide_user_agent_version: If True, omit version details from User-Agent header (default: False)
         """
         if not domain:
             raise TACValidationError("domain is required in TACSender constructor", TACErrorCodes.DOMAIN_REQUIRED)
@@ -75,33 +80,37 @@ class TACSender:
             )
 
         self.domain = domain
+        self._password = password
         self.set_private_key(private_key)  # This sets both private and public keys
         self.ttl = ttl
         self.jwks_cache = JWKSCache(cache_timeout)
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.hide_user_agent_version = hide_user_agent_version
         self.recipient_data: Dict[str, Dict] = {}
 
-    def set_private_key(self, private_key: Union[str, Any]):
+    def set_private_key(self, private_key: Union[str, Any], password: Optional[bytes] = None):
         """
         Set private key and automatically derive public key
 
         Args:
-            private_key: Private key object or PEM string (RSA or EC)
+            private_key: Private key object or PEM string
+            password: Password for encrypted private keys (default: uses constructor password)
         """
+        key_password = password if password is not None else getattr(self, "_password", None)
         try:
             if isinstance(private_key, str):
-                self.private_key = serialization.load_pem_private_key(private_key.encode(), password=None)
+                self.private_key = serialization.load_pem_private_key(private_key.encode(), password=key_password)
             else:
                 self.private_key = private_key
         except Exception as error:
             raise TACCryptoError(f"Invalid key data: {str(error)}", TACErrorCodes.INVALID_KEY_DATA)
 
         # Verify it's a supported key type
-        supported_types = [rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey]
-        if not any(isinstance(self.private_key, t) for t in supported_types):
+        if not isinstance(self.private_key, rsa.RSAPrivateKey):
             raise TACCryptoError(
-                "TAC Protocol requires RSA or EC (P-256/384/521) keys", TACErrorCodes.UNSUPPORTED_KEY_TYPE
+                "TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)",
+                TACErrorCodes.UNSUPPORTED_KEY_TYPE
             )
 
         # Always derive public key from private key
@@ -143,7 +152,7 @@ class TACSender:
             max_retries=self.max_retries,
             retry_delay=self.retry_delay,
             max_delay=self.retry_delay * 30,
-            user_agent=get_user_agent(),
+            user_agent=get_user_agent(hide_version=self.hide_user_agent_version),
             force_refresh=force_refresh,
         )
 
@@ -217,12 +226,16 @@ class TACSender:
         recipient_jwes = []
 
         for domain, jwk_dict in recipient_public_keys.items():
+            # Generate unique JWT ID to prevent replay attacks
+            jti = str(uuid.uuid4())
+
             # Create JWT payload with only this recipient's data
             payload = {
                 "iss": self.domain,
                 "exp": now + self.ttl,
                 "iat": now,
                 "aud": domain,  # Audience claim for this specific recipient
+                "jti": jti,  # Unique JWT ID to prevent replay attacks
                 "data": self.recipient_data[domain],  # Only this recipient's data
             }
 
@@ -230,10 +243,7 @@ class TACSender:
             key_id = self.generate_key_id()
             try:
                 # Create JWK from private key for signing
-                if self.key_type == "RSA":
-                    private_key_jwk = RSAKey(key=self.private_key, algorithm=self.signing_algorithm)
-                elif self.key_type == "EC":
-                    private_key_jwk = ECKey(key=self.private_key, algorithm=self.signing_algorithm)
+                private_key_jwk = RSAKey(key=self.private_key, algorithm=self.signing_algorithm)
 
                 signed_jwt = jose.jwt.encode(
                     payload, private_key_jwk, algorithm=self.signing_algorithm, headers={"kid": key_id, "typ": "JWT"}
@@ -242,7 +252,7 @@ class TACSender:
                 raise TACCryptoError(f"JWT signing failed: {str(error)}", TACErrorCodes.JWT_SIGNING_FAILED)
 
             # Step 2: ENCRYPT the signed JWT with recipient's public key (JWE)
-            algorithm = jwk_dict.get("alg", "RSA-OAEP-256" if jwk_dict.get("kty") == "RSA" else "ECDH-ES+A256KW")
+            algorithm = jwk_dict.get("alg", "RSA-OAEP-256")
 
             try:
                 # Encrypt the signed JWT for this recipient

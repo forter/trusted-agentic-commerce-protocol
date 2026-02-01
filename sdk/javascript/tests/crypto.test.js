@@ -51,45 +51,6 @@ describe('Cryptographic Operations', () => {
         assert.strictEqual(sender.signingAlgorithm, 'RS256'); // Implementation defaults to RS256
         // Note: asymmetricKeySize may not be available on all key types
       });
-
-      it('should support EC P-256 keys', async () => {
-        const { privateKey } = await jose.generateKeyPair('ES256');
-
-        const sender = new TACSender({
-          domain: 'test.com',
-          privateKey: privateKey
-        });
-
-        assert.strictEqual(sender.keyType, 'EC');
-        assert.strictEqual(sender.signingAlgorithm, 'ES256');
-        assert.strictEqual(sender.privateKey.asymmetricKeyDetails.namedCurve, 'prime256v1');
-      });
-
-      it('should support EC P-384 keys', async () => {
-        const { privateKey } = await jose.generateKeyPair('ES384');
-
-        const sender = new TACSender({
-          domain: 'test.com',
-          privateKey: privateKey
-        });
-
-        assert.strictEqual(sender.keyType, 'EC');
-        assert.strictEqual(sender.signingAlgorithm, 'ES384');
-        assert.strictEqual(sender.privateKey.asymmetricKeyDetails.namedCurve, 'secp384r1');
-      });
-
-      it('should support EC P-521 keys', async () => {
-        const { privateKey } = await jose.generateKeyPair('ES512');
-
-        const sender = new TACSender({
-          domain: 'test.com',
-          privateKey: privateKey
-        });
-
-        assert.strictEqual(sender.keyType, 'EC');
-        assert.strictEqual(sender.signingAlgorithm, 'ES512');
-        assert.strictEqual(sender.privateKey.asymmetricKeyDetails.namedCurve, 'secp521r1');
-      });
     });
 
     describe('Invalid Key Types', () => {
@@ -103,7 +64,7 @@ describe('Cryptographic Operations', () => {
             domain: 'test.com',
             privateKey: ed25519Key.privateKey
           });
-        }, /TAC Protocol requires RSA or EC/);
+        }, /TAC Protocol requires RSA keys/);
       });
 
       it('should reject DSA keys', () => {
@@ -118,7 +79,19 @@ describe('Cryptographic Operations', () => {
             domain: 'test.com',
             privateKey: dsaKey.privateKey
           });
-        }, /TAC Protocol requires RSA or EC/);
+        }, /TAC Protocol requires RSA keys/);
+      });
+
+      it('should reject EC keys', async () => {
+        // EC keys are not supported
+        const { privateKey } = await jose.generateKeyPair('ES256');
+
+        assert.throws(() => {
+          new TACSender({
+            domain: 'test.com',
+            privateKey: privateKey
+          });
+        }, /TAC Protocol requires RSA keys/);
       });
     });
 
@@ -136,21 +109,6 @@ describe('Cryptographic Operations', () => {
         });
 
         assert.strictEqual(sender.keyType, 'RSA');
-        assert.ok(sender.privateKey);
-        assert.ok(sender.publicKey);
-      });
-
-      it('should parse PEM format EC keys', async () => {
-        const { privateKey } = await jose.generateKeyPair('ES256');
-
-        const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' });
-
-        const sender = new TACSender({
-          domain: 'test.com',
-          privateKey: privatePem
-        });
-
-        assert.strictEqual(sender.keyType, 'EC');
         assert.ok(sender.privateKey);
         assert.ok(sender.publicKey);
       });
@@ -174,24 +132,6 @@ describe('Cryptographic Operations', () => {
         assert.strictEqual(derivedJWK.kty, originalJWK.kty);
         assert.strictEqual(derivedJWK.n, originalJWK.n);
         assert.strictEqual(derivedJWK.e, originalJWK.e);
-      });
-
-      it('should correctly derive public key from EC private key', async () => {
-        const { publicKey, privateKey } = await jose.generateKeyPair('ES256');
-
-        const sender = new TACSender({
-          domain: 'test.com',
-          privateKey: privateKey
-        });
-
-        // Verify derived public key matches original
-        const originalJWK = await jose.exportJWK(publicKey);
-        const derivedJWK = await sender.getPublicJWK();
-
-        assert.strictEqual(derivedJWK.kty, originalJWK.kty);
-        assert.strictEqual(derivedJWK.crv, originalJWK.crv);
-        assert.strictEqual(derivedJWK.x, originalJWK.x);
-        assert.strictEqual(derivedJWK.y, originalJWK.y);
       });
     });
 
@@ -367,126 +307,6 @@ MIIEvQIBADANBgkqhkiG9w0BAQEF
         // Verify we can decrypt
         const decrypted = await jose.jwtDecrypt(encrypted, privateKey);
         assert.strictEqual(decrypted.payload.data, testData);
-      });
-    });
-
-    describe('EC Algorithms', () => {
-      it('should use correct signing algorithms for EC keys', async () => {
-        const testCases = [
-          { curve: 'ES256', expectedCurve: 'prime256v1' },
-          { curve: 'ES384', expectedCurve: 'secp384r1' },
-          { curve: 'ES512', expectedCurve: 'secp521r1' }
-        ];
-
-        for (const { curve, expectedCurve } of testCases) {
-          const { privateKey } = await jose.generateKeyPair(curve);
-
-          const sender = new TACSender({
-            domain: 'test.com',
-            privateKey: privateKey
-          });
-
-          assert.strictEqual(sender.signingAlgorithm, curve);
-          assert.strictEqual(sender.privateKey.asymmetricKeyDetails.namedCurve, expectedCurve);
-        }
-      });
-
-      it('should use ECDH-ES+A256KW for EC encryption', async () => {
-        const { privateKey, publicKey } = await jose.generateKeyPair('ES256');
-
-        const jwk = await jose.exportJWK(publicKey);
-        const encryptionJWK = {
-          ...jwk,
-          use: 'enc',
-          alg: 'ECDH-ES+A256KW'
-        };
-
-        // Test that we can use this for encryption
-        const testData = 'test encryption data';
-        const encrypted = await new jose.EncryptJWT({ data: testData })
-          .setProtectedHeader({ alg: 'ECDH-ES+A256KW', enc: 'A256GCM' })
-          .setAudience('test.com')
-          .setIssuer('sender.com')
-          .setExpirationTime('1h')
-          .encrypt(await jose.importJWK(encryptionJWK));
-
-        assert.ok(encrypted);
-
-        // Verify we can decrypt
-        const decrypted = await jose.jwtDecrypt(encrypted, privateKey);
-        assert.strictEqual(decrypted.payload.data, testData);
-      });
-    });
-
-    describe('Algorithm Mismatch', () => {
-      it('should reject RSA algorithm for EC key', async () => {
-        const { privateKey } = await jose.generateKeyPair('ES256');
-
-        // Try to sign with wrong algorithm
-        const payload = { test: 'data' };
-
-        await assert.rejects(async () => {
-          await new jose.SignJWT(payload)
-            .setProtectedHeader({ alg: 'RS256' }) // Wrong algorithm
-            .setIssuer('test.com')
-            .setExpirationTime('1h')
-            .sign(privateKey);
-        }, /Invalid key for this operation/);
-      });
-
-      it('should reject EC algorithm for RSA key', async () => {
-        const { privateKey } = await jose.generateKeyPair('RS256', {
-          modulusLength: 2048
-        });
-
-        // Try to sign with wrong algorithm
-        const payload = { test: 'data' };
-
-        await assert.rejects(async () => {
-          await new jose.SignJWT(payload)
-            .setProtectedHeader({ alg: 'ES256' }) // Wrong algorithm
-            .setIssuer('test.com')
-            .setExpirationTime('1h')
-            .sign(privateKey);
-        }, /Invalid key for this operation/);
-      });
-    });
-
-    describe('Curve Detection', () => {
-      it('should correctly detect P-256 curve', async () => {
-        const { privateKey } = await jose.generateKeyPair('ES256');
-
-        const sender = new TACSender({
-          domain: 'test.com',
-          privateKey: privateKey
-        });
-
-        const jwk = await sender.getPublicJWK();
-        assert.strictEqual(jwk.crv, 'P-256');
-      });
-
-      it('should correctly detect P-384 curve', async () => {
-        const { privateKey } = await jose.generateKeyPair('ES384');
-
-        const sender = new TACSender({
-          domain: 'test.com',
-          privateKey: privateKey
-        });
-
-        const jwk = await sender.getPublicJWK();
-        assert.strictEqual(jwk.crv, 'P-384');
-      });
-
-      it('should correctly detect P-521 curve', async () => {
-        const { privateKey } = await jose.generateKeyPair('ES512');
-
-        const sender = new TACSender({
-          domain: 'test.com',
-          privateKey: privateKey
-        });
-
-        const jwk = await sender.getPublicJWK();
-        assert.strictEqual(jwk.crv, 'P-521');
       });
     });
   });

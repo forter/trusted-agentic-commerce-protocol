@@ -3,6 +3,7 @@
 Integration Tests for TAC Protocol Python SDK
 
 Tests end-to-end workflows, cross-component interactions.
+Each party only manages their own private key - public keys are fetched via JWKS from domains.
 """
 
 import asyncio
@@ -14,7 +15,7 @@ import time
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 # Add src directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -24,31 +25,41 @@ from recipient import TACRecipient
 from sender import TACSender
 
 
+def generate_rsa_key():
+    """Generate an RSA private key for testing"""
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+async def setup_jwks_exchange(sender: TACSender, recipient: TACRecipient):
+    """
+    Set up JWKS mocking for sender-recipient communication.
+
+    In production:
+    - Sender fetches recipient's public key from recipient's domain JWKS endpoint
+    - Recipient fetches sender's public key from sender's domain JWKS endpoint
+
+    This helper mocks those JWKS fetches to return the correct public keys.
+    """
+    sender_jwk = await sender.get_public_jwk()
+    recipient_jwk = await recipient.get_public_jwk()
+
+    sender.fetch_jwks = AsyncMock(return_value=[recipient_jwk])
+    recipient.fetch_jwks = AsyncMock(return_value=[sender_jwk])
+
+
 class TestEndToEndWorkflow(unittest.TestCase):
     """Test complete end-to-end TAC Protocol workflow"""
 
-    def setUp(self):
-        """Set up test fixtures"""
-        # Create sender
-        self.sender_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.sender = TACSender(domain="agent.com", private_key=self.sender_private_key)
-
-        # Create recipient
-        self.recipient_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.recipient = TACRecipient(domain="merchant.com", private_key=self.recipient_private_key)
-
-    @patch.object(TACSender, "fetch_jwks")
-    @patch.object(TACRecipient, "fetch_jwks")
-    def test_basic_end_to_end_flow(self, mock_recipient_fetch, mock_sender_fetch):
+    def test_basic_end_to_end_flow(self):
         """Test basic end-to-end message flow"""
 
         async def run_test():
-            # Set up mocks
-            recipient_jwk = await self.recipient.get_public_jwk()
-            sender_jwk = await self.sender.get_public_jwk()
+            # Each party only has their own private key
+            sender = TACSender(domain="agent.com", private_key=generate_rsa_key())
+            recipient = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
 
-            mock_sender_fetch.return_value = [recipient_jwk]
-            mock_recipient_fetch.return_value = [sender_jwk]
+            # JWKS exchange - each party's public key is fetched from their domain
+            await setup_jwks_exchange(sender, recipient)
 
             # Test data
             test_data = {
@@ -58,8 +69,8 @@ class TestEndToEndWorkflow(unittest.TestCase):
             }
 
             # Generate message
-            await self.sender.add_recipient_data("merchant.com", test_data)
-            message = await self.sender.generate_tac_message()
+            await sender.add_recipient_data("merchant.com", test_data)
+            message = await sender.generate_tac_message()
 
             # Verify message is valid base64
             self.assertIsInstance(message, str)
@@ -69,7 +80,7 @@ class TestEndToEndWorkflow(unittest.TestCase):
             self.assertIn("recipients", message_data)
 
             # Process message
-            result = await self.recipient.process_tac_message(message)
+            result = await recipient.process_tac_message(message)
 
             # Verify result
             self.assertTrue(result["valid"])
@@ -89,44 +100,44 @@ class TestEndToEndWorkflow(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch.object(TACSender, "fetch_jwks")
-    @patch.object(TACRecipient, "fetch_jwks")
-    def test_multi_recipient_workflow(self, mock_recipient_fetch, mock_sender_fetch):
+    def test_multi_recipient_workflow(self):
         """Test multi-recipient workflow"""
 
         async def run_test():
-            # Create second recipient
-            recipient2_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            recipient2 = TACRecipient(domain="forter.com", private_key=recipient2_private_key)
+            # Each party only has their own private key
+            sender = TACSender(domain="agent.com", private_key=generate_rsa_key())
+            merchant = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
+            forter = TACRecipient(domain="forter.com", private_key=generate_rsa_key())
 
-            # Set up mocks
-            recipient1_jwk = await self.recipient.get_public_jwk()
-            recipient2_jwk = await recipient2.get_public_jwk()
-            sender_jwk = await self.sender.get_public_jwk()
+            # JWKS exchange - public keys fetched from respective domains
+            sender_jwk = await sender.get_public_jwk()
+            merchant_jwk = await merchant.get_public_jwk()
+            forter_jwk = await forter.get_public_jwk()
 
-            def mock_sender_fetch_side_effect(domain):
+            async def sender_fetch_jwks(domain):
                 if domain == "merchant.com":
-                    return [recipient1_jwk]
+                    return [merchant_jwk]
                 elif domain == "forter.com":
-                    return [recipient2_jwk]
+                    return [forter_jwk]
                 return []
 
-            mock_sender_fetch.side_effect = mock_sender_fetch_side_effect
-            mock_recipient_fetch.return_value = [sender_jwk]
+            sender.fetch_jwks = sender_fetch_jwks
+            merchant.fetch_jwks = AsyncMock(return_value=[sender_jwk])
+            forter.fetch_jwks = AsyncMock(return_value=[sender_jwk])
 
             # Add different data for each recipient
             merchant_data = {"user": {"id": "user123"}, "order": {"id": "order456", "total": 99.99}}
             forter_data = {"user": {"id": "user123"}, "session": {"ipAddress": "192.168.1.1", "fingerprint": "abc123"}}
 
-            await self.sender.add_recipient_data("merchant.com", merchant_data)
-            await self.sender.add_recipient_data("forter.com", forter_data)
+            await sender.add_recipient_data("merchant.com", merchant_data)
+            await sender.add_recipient_data("forter.com", forter_data)
 
             # Generate message
-            message = await self.sender.generate_tac_message()
+            message = await sender.generate_tac_message()
 
             # Both recipients should be able to process
-            result1 = await self.recipient.process_tac_message(message)
-            result2 = await recipient2.process_tac_message(message)
+            result1 = await merchant.process_tac_message(message)
+            result2 = await forter.process_tac_message(message)
 
             # Verify both results
             self.assertTrue(result1["valid"])
@@ -147,22 +158,20 @@ class TestEndToEndWorkflow(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch.object(TACSender, "fetch_jwks")
-    @patch.object(TACRecipient, "fetch_jwks")
-    def test_message_inspection_workflow(self, mock_recipient_fetch, mock_sender_fetch):
+    def test_message_inspection_workflow(self):
         """Test message inspection workflow"""
 
         async def run_test():
-            # Set up mocks
-            recipient_jwk = await self.recipient.get_public_jwk()
-            sender_jwk = await self.sender.get_public_jwk()
+            # Each party only has their own private key
+            sender = TACSender(domain="agent.com", private_key=generate_rsa_key())
+            recipient = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
 
-            mock_sender_fetch.return_value = [recipient_jwk]
-            mock_recipient_fetch.return_value = [sender_jwk]
+            # JWKS exchange
+            await setup_jwks_exchange(sender, recipient)
 
             # Generate message
-            await self.sender.add_recipient_data("merchant.com", {"user": {"id": "test"}})
-            message = await self.sender.generate_tac_message()
+            await sender.add_recipient_data("merchant.com", {"user": {"id": "test"}})
+            message = await sender.generate_tac_message()
 
             # Inspect message without decryption
             inspection = TACRecipient.inspect(message)
@@ -172,7 +181,7 @@ class TestEndToEndWorkflow(unittest.TestCase):
             self.assertIsNone(inspection["expires"])  # No expiration in this test
 
             # Process message for full verification
-            result = await self.recipient.process_tac_message(message)
+            result = await recipient.process_tac_message(message)
 
             self.assertTrue(result["valid"])
             self.assertEqual(result["data"]["user"]["id"], "test")
@@ -183,41 +192,38 @@ class TestEndToEndWorkflow(unittest.TestCase):
 class TestErrorScenarios(unittest.TestCase):
     """Test error scenarios in integration"""
 
-    def setUp(self):
-        """Set up test fixtures"""
-        self.sender_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.sender = TACSender(domain="agent.com", private_key=self.sender_private_key)
-
-        self.recipient_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.recipient = TACRecipient(domain="merchant.com", private_key=self.recipient_private_key)
-
-    @patch.object(TACSender, "fetch_jwks")
-    def test_network_error_during_generation(self, mock_fetch):
+    def test_network_error_during_generation(self):
         """Test network error during message generation"""
-        mock_fetch.side_effect = TACNetworkError("Failed to fetch JWKS", "TAC_JWKS_FETCH_FAILED")
 
         async def run_test():
-            await self.sender.add_recipient_data("merchant.com", {"test": "data"})
+            sender = TACSender(domain="agent.com", private_key=generate_rsa_key())
+            sender.fetch_jwks = AsyncMock(
+                side_effect=TACNetworkError("Failed to fetch JWKS", "TAC_JWKS_FETCH_FAILED")
+            )
+
+            await sender.add_recipient_data("merchant.com", {"test": "data"})
 
             with self.assertRaises(TACNetworkError) as cm:
-                await self.sender.generate_tac_message()
+                await sender.generate_tac_message()
 
             self.assertIn("Failed to fetch JWKS", str(cm.exception))
 
         asyncio.run(run_test())
 
-    @patch.object(TACRecipient, "fetch_jwks")
-    def test_network_error_during_processing(self, mock_fetch):
+    def test_network_error_during_processing(self):
         """Test network error during message processing"""
-        mock_fetch.side_effect = TACNetworkError("Failed to fetch sender keys", "TAC_JWKS_FETCH_FAILED")
 
         async def run_test():
+            recipient = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
+            recipient.fetch_jwks = AsyncMock(
+                side_effect=TACNetworkError("Failed to fetch sender keys", "TAC_JWKS_FETCH_FAILED")
+            )
+
             # Create a minimal message
             message_data = {"version": "2025-08-27", "recipients": [{"kid": "merchant.com", "jwe": "encrypted_data"}]}
-
             encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
 
-            result = await self.recipient.process_tac_message(encoded_message)
+            result = await recipient.process_tac_message(encoded_message)
 
             self.assertFalse(result["valid"])
             self.assertGreater(len(result["errors"]), 0)
@@ -228,6 +234,8 @@ class TestErrorScenarios(unittest.TestCase):
         """Test handling of various invalid messages"""
 
         async def run_test():
+            recipient = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
+
             invalid_messages = [
                 None,  # None message
                 "",  # Empty message
@@ -237,42 +245,42 @@ class TestErrorScenarios(unittest.TestCase):
             ]
 
             for invalid_message in invalid_messages:
-                result = await self.recipient.process_tac_message(invalid_message)
+                result = await recipient.process_tac_message(invalid_message)
 
                 self.assertFalse(result["valid"], f"Should fail for: {invalid_message}")
                 self.assertGreater(len(result["errors"]), 0)
 
         asyncio.run(run_test())
 
-    @patch.object(TACSender, "fetch_jwks")
-    def test_mismatched_key_types(self, mock_fetch):
-        """Test handling of mismatched key types"""
+    def test_malformed_jwk_handling(self):
+        """Test handling of malformed JWK data"""
 
         async def run_test():
-            # Mock EC key for RSA-expecting recipient
-            ec_private_key = ec.generate_private_key(ec.SECP256R1())
-            ec_sender = TACSender(domain="agent.com", private_key=ec_private_key)
-            ec_jwk = await ec_sender.get_public_jwk()
+            sender = TACSender(domain="agent.com", private_key=generate_rsa_key())
 
-            # Force RSA algorithm on EC key (should cause issues)
-            malformed_jwk = ec_jwk.copy()
-            malformed_jwk["kty"] = "RSA"
-            malformed_jwk["alg"] = "RSA-OAEP-256"
+            # Create a malformed JWK that claims to be RSA but is missing required fields
+            malformed_jwk = {
+                "kty": "RSA",
+                "kid": "malformed-key",
+                "alg": "RSA-OAEP-256",
+                "use": "enc",
+                # Missing required RSA fields: n, e
+            }
 
-            mock_fetch.return_value = [malformed_jwk]
+            sender.fetch_jwks = AsyncMock(return_value=[malformed_jwk])
 
-            await self.sender.add_recipient_data("merchant.com", {"test": "data"})
+            await sender.add_recipient_data("merchant.com", {"test": "data"})
 
             # Should handle gracefully or throw appropriate error
             try:
-                await self.sender.generate_tac_message()
+                await sender.generate_tac_message()
                 # If it succeeds, that's also acceptable (robust implementation)
             except (TACCryptoError, TACValidationError) as e:
-                # Expected error types for key mismatch - could be various crypto-related errors
+                # Expected error types for malformed key - could be various crypto-related errors
                 error_msg = str(e).lower()
                 # Accept various key/crypto-related error messages
                 self.assertTrue(
-                    "key" in error_msg or "encryption" in error_msg or "invalid" in error_msg,
+                    "key" in error_msg or "encryption" in error_msg or "invalid" in error_msg or "jwk" in error_msg,
                     f"Expected key/crypto-related error, got: {e}",
                 )
 
@@ -282,26 +290,16 @@ class TestErrorScenarios(unittest.TestCase):
 class TestPerformanceScenarios(unittest.TestCase):
     """Test performance-related scenarios"""
 
-    def setUp(self):
-        """Set up test fixtures"""
-        self.sender_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.sender = TACSender(domain="agent.com", private_key=self.sender_private_key)
-
-        self.recipient_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.recipient = TACRecipient(domain="merchant.com", private_key=self.recipient_private_key)
-
-    @patch.object(TACSender, "fetch_jwks")
-    @patch.object(TACRecipient, "fetch_jwks")
-    def test_large_payload_handling(self, mock_recipient_fetch, mock_sender_fetch):
+    def test_large_payload_handling(self):
         """Test handling of large payloads"""
 
         async def run_test():
-            # Set up mocks
-            recipient_jwk = await self.recipient.get_public_jwk()
-            sender_jwk = await self.sender.get_public_jwk()
+            # Each party only has their own private key
+            sender = TACSender(domain="agent.com", private_key=generate_rsa_key())
+            recipient = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
 
-            mock_sender_fetch.return_value = [recipient_jwk]
-            mock_recipient_fetch.return_value = [sender_jwk]
+            # JWKS exchange
+            await setup_jwks_exchange(sender, recipient)
 
             # Create large payload
             large_data = {
@@ -312,14 +310,14 @@ class TestPerformanceScenarios(unittest.TestCase):
                 }
             }
 
-            await self.sender.add_recipient_data("merchant.com", large_data)
+            await sender.add_recipient_data("merchant.com", large_data)
 
             start_time = time.time()
-            message = await self.sender.generate_tac_message()
+            message = await sender.generate_tac_message()
             generation_time = time.time() - start_time
 
             start_time = time.time()
-            result = await self.recipient.process_tac_message(message)
+            result = await recipient.process_tac_message(message)
             processing_time = time.time() - start_time
 
             # Should complete in reasonable time
@@ -333,24 +331,27 @@ class TestPerformanceScenarios(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch.object(TACSender, "fetch_jwks")
-    @patch.object(TACRecipient, "fetch_jwks")
-    def test_concurrent_message_processing(self, mock_recipient_fetch, mock_sender_fetch):
+    def test_concurrent_message_processing(self):
         """Test concurrent message processing"""
 
         async def run_test():
-            # Set up mocks
-            recipient_jwk = await self.recipient.get_public_jwk()
-            sender_jwk = await self.sender.get_public_jwk()
+            # Shared keys for this test
+            sender_key = generate_rsa_key()
+            recipient_key = generate_rsa_key()
 
-            mock_sender_fetch.return_value = [recipient_jwk]
-            mock_recipient_fetch.return_value = [sender_jwk]
+            # Create base sender and recipient to get their public JWKs
+            base_sender = TACSender(domain="agent.com", private_key=sender_key)
+            recipient = TACRecipient(domain="merchant.com", private_key=recipient_key)
+
+            sender_jwk = await base_sender.get_public_jwk()
+            recipient_jwk = await recipient.get_public_jwk()
+
+            recipient.fetch_jwks = AsyncMock(return_value=[sender_jwk])
 
             # Generate multiple messages concurrently
             async def generate_message(message_id):
                 # Create new sender for each message to avoid conflicts
-                sender = TACSender(domain="agent.com", private_key=self.sender_private_key)
-                # Set up the mock for this sender instance
+                sender = TACSender(domain="agent.com", private_key=sender_key)
                 sender.fetch_jwks = AsyncMock(return_value=[recipient_jwk])
 
                 await sender.add_recipient_data(
@@ -362,10 +363,7 @@ class TestPerformanceScenarios(unittest.TestCase):
             messages = await asyncio.gather(*[generate_message(i) for i in range(10)])
 
             # Process messages concurrently
-            async def process_message(message):
-                return await self.recipient.process_tac_message(message)
-
-            results = await asyncio.gather(*[process_message(msg) for msg in messages])
+            results = await asyncio.gather(*[recipient.process_tac_message(msg) for msg in messages])
 
             # All should succeed
             self.assertEqual(len(results), 10)
@@ -379,31 +377,20 @@ class TestPerformanceScenarios(unittest.TestCase):
 class TestKeyRotationScenarios(unittest.TestCase):
     """Test key rotation scenarios"""
 
-    def setUp(self):
-        """Set up test fixtures"""
-        self.sender_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.sender = TACSender(domain="agent.com", private_key=self.sender_private_key)
-
-    @patch.object(TACSender, "fetch_jwks")
-    @patch.object(TACRecipient, "fetch_jwks")
-    def test_key_rotation_during_operation(self, mock_recipient_fetch, mock_sender_fetch):
+    def test_key_rotation_during_operation(self):
         """Test basic key operation with initial key setup"""
 
         async def run_test():
-            # Create initial recipient
-            recipient_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            recipient = TACRecipient(domain="merchant.com", private_key=recipient_private_key)
+            # Each party only has their own private key
+            sender = TACSender(domain="agent.com", private_key=generate_rsa_key())
+            recipient = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
 
-            # Set up initial keys
-            recipient_jwk = await recipient.get_public_jwk()
-            sender_jwk = await self.sender.get_public_jwk()
-
-            mock_sender_fetch.return_value = [recipient_jwk]
-            mock_recipient_fetch.return_value = [sender_jwk]
+            # JWKS exchange
+            await setup_jwks_exchange(sender, recipient)
 
             # Generate and process message with initial setup
-            await self.sender.add_recipient_data("merchant.com", {"test": "data"})
-            message = await self.sender.generate_tac_message()
+            await sender.add_recipient_data("merchant.com", {"test": "data"})
+            message = await sender.generate_tac_message()
 
             result = await recipient.process_tac_message(message)
 
@@ -413,32 +400,26 @@ class TestKeyRotationScenarios(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch.object(TACRecipient, "fetch_jwks")
-    def test_multiple_keys_in_jwks(self, mock_fetch):
+    def test_multiple_keys_in_jwks(self):
         """Test handling multiple keys in JWKS"""
 
         async def run_test():
-            # Create multiple recipient keys
-            recipient1_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            recipient1 = TACRecipient(domain="merchant.com", private_key=recipient1_private_key)
+            sender = TACSender(domain="agent.com", private_key=generate_rsa_key())
+            recipient = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
 
-            recipient2_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            recipient2 = TACRecipient(domain="merchant.com", private_key=recipient2_private_key)
-
-            # Mock JWKS with multiple keys
-            sender_jwk = await self.sender.get_public_jwk()
+            # Mock JWKS with multiple keys (current + old)
+            sender_jwk = await sender.get_public_jwk()
             old_sender_jwk = sender_jwk.copy()
             old_sender_jwk["kid"] = "old-key-id"
 
-            mock_fetch.return_value = [sender_jwk, old_sender_jwk]
+            recipient.fetch_jwks = AsyncMock(return_value=[sender_jwk, old_sender_jwk])
 
             # Create test message
             message_data = {"version": "2025-08-27", "recipients": [{"kid": "merchant.com", "jwe": "encrypted_data"}]}
-
             encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
 
             # Should be able to process with multiple keys available
-            result = await recipient1.process_tac_message(encoded_message)
+            result = await recipient.process_tac_message(encoded_message)
 
             # Basic structure should be valid (even if decryption fails due to test data)
             self.assertIsInstance(result, dict)
@@ -451,15 +432,12 @@ class TestKeyRotationScenarios(unittest.TestCase):
 class TestSecurityScenarios(unittest.TestCase):
     """Test security-related scenarios"""
 
-    def setUp(self):
-        """Set up test fixtures"""
-        self.recipient_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        self.recipient = TACRecipient(domain="merchant.com", private_key=self.recipient_private_key)
-
     def test_message_tampering_detection(self):
         """Test detection of message tampering"""
 
         async def run_test():
+            recipient = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
+
             # Create a valid-looking but tampered message
             tampered_message_data = {
                 "version": "2025-08-27",
@@ -468,7 +446,7 @@ class TestSecurityScenarios(unittest.TestCase):
 
             encoded_message = base64.b64encode(json.dumps(tampered_message_data).encode("utf-8")).decode("utf-8")
 
-            result = await self.recipient.process_tac_message(encoded_message)
+            result = await recipient.process_tac_message(encoded_message)
 
             # Should detect tampering
             self.assertFalse(result["valid"])
@@ -480,6 +458,8 @@ class TestSecurityScenarios(unittest.TestCase):
         """Test handling of malformed data injection attempts"""
 
         async def run_test():
+            recipient = TACRecipient(domain="merchant.com", private_key=generate_rsa_key())
+
             malformed_messages = [
                 # Extremely nested objects
                 base64.b64encode(
@@ -505,7 +485,7 @@ class TestSecurityScenarios(unittest.TestCase):
             ]
 
             for malformed_message in malformed_messages:
-                result = await self.recipient.process_tac_message(malformed_message)
+                result = await recipient.process_tac_message(malformed_message)
 
                 # Should handle gracefully without crashing
                 self.assertIsInstance(result, dict)

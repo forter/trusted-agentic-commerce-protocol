@@ -85,7 +85,7 @@ describe("TACRecipient - Message Processing", () => {
       const result = await recipient.processTACMessage("invalid-base64!");
 
       assert.strictEqual(result.valid, false);
-      assert.ok(result.errors.some((e) => e.includes("Invalid TAC-Protocol message format")));
+      assert.ok(result.errors.some((e) => e.includes("must be base64-encoded")));
     });
 
     it("should handle malformed JSON", async () => {
@@ -240,36 +240,35 @@ describe("TACRecipient - Message Processing", () => {
       assert.ok(result.errors.some((e) => e.includes("decrypt")));
     });
 
-    it("should handle key type mismatch", async () => {
-      // This test simulates using RSA key for EC encryption (edge case)
-      // In practice, this would be caught during message generation
-      const ecRecipientKeys = await jose.generateKeyPair("ES256");
-      const ecRecipient = new TACRecipient({
-        domain: "ec-recipient.com",
-        privateKey: ecRecipientKeys.privateKey as any,
+    it("should handle key mismatch between encryption and decryption", async () => {
+      // This test simulates trying to decrypt with the wrong key
+      const otherRecipientKeys = await jose.generateKeyPair("RS256", { modulusLength: 2048 });
+      const otherRecipient = new TACRecipient({
+        domain: "other-recipient.com",
+        privateKey: otherRecipientKeys.privateKey as any,
       });
 
-      // Manually create JWE with wrong algorithm
+      // Create JWE encrypted with a different RSA key
       const wrongJWE = await new jose.EncryptJWT({ data: "test" })
-        .setProtectedHeader({ alg: "RSA-OAEP-256", enc: "A256GCM" }) // RSA algorithm
+        .setProtectedHeader({ alg: "RSA-OAEP-256", enc: "A256GCM" })
         .setIssuer("sender.com")
-        .setAudience("ec-recipient.com")
+        .setAudience("other-recipient.com")
         .setExpirationTime("1h")
-        .encrypt(recipientKeys.publicKey); // But encrypt with RSA key
+        .encrypt(recipientKeys.publicKey); // Encrypt with recipient's key, not otherRecipient's
 
       const malformedMessage = {
         version: SCHEMA_VERSION,
-        recipients: [{ kid: "ec-recipient.com", jwe: wrongJWE }],
+        recipients: [{ kid: "other-recipient.com", jwe: wrongJWE }],
       };
       const base64Message = Buffer.from(JSON.stringify(malformedMessage)).toString("base64");
 
       const senderJWK = await sender.getPublicJWK();
-      (ecRecipient as any).fetchJWKS = async () => [senderJWK];
+      (otherRecipient as any).fetchJWKS = async () => [senderJWK];
 
-      const result = await ecRecipient.processTACMessage(base64Message);
+      const result = await otherRecipient.processTACMessage(base64Message);
 
       assert.strictEqual(result.valid, false);
-      assert.ok(result.errors.some((e) => e.includes("Invalid key") || e.includes("asymmetricKeyType")));
+      assert.ok(result.errors.some((e) => e.includes("decrypt") || e.includes("decryption")));
     });
 
     it("should handle corrupted ciphertext", async () => {
@@ -905,7 +904,7 @@ describe("TACRecipient - Message Processing", () => {
 
     it("should handle invalid message in inspect", () => {
       const result = TACRecipient.inspect("invalid-base64!");
-      assert.ok(result.error && result.error.includes("Invalid TAC-Protocol message format"));
+      assert.ok(result.error && result.error.includes("must be base64-encoded"));
     });
 
     it("should handle malformed JSON in inspect", () => {
@@ -1016,7 +1015,7 @@ describe("TACRecipient - Message Processing", () => {
         },
         {
           input: "invalid-base64!",
-          expectedError: "Invalid TAC-Protocol message format",
+          expectedError: "must be base64-encoded",
         },
       ];
 

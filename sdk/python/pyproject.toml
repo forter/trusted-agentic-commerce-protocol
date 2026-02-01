@@ -53,6 +53,10 @@ dev = [
     "mypy>=1.0.0",
 ]
 
+[project.scripts]
+tacp-send = "cli.tacp_send:main"
+tacp-receive = "cli.tacp_receive:main"
+
 [project.urls]
 Homepage = "https://github.com/forter/trusted-agentic-commerce-protocol"
 Repository = "https://github.com/forter/trusted-agentic-commerce-protocol"
@@ -60,10 +64,10 @@ Documentation = "https://github.com/forter/trusted-agentic-commerce-protocol/tre
 "Bug Tracker" = "https://github.com/forter/trusted-agentic-commerce-protocol/issues"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "src", "cli" = "cli"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "cli"]
 
 [tool.black]
 line-length = 120

@@ -35,6 +35,23 @@ describe('Utility Functions', () => {
       const userAgent2 = getUserAgent();
       assert.strictEqual(userAgent1, userAgent2);
     });
+
+    it('should return only TAC-Protocol when hideVersion is true', () => {
+      const userAgent = getUserAgent({ hideVersion: true });
+      assert.strictEqual(userAgent, 'TAC-Protocol');
+    });
+
+    it('should include version details when hideVersion is false', () => {
+      const userAgent = getUserAgent({ hideVersion: false });
+      assert.ok(userAgent.includes(SCHEMA_VERSION));
+      assert.ok(userAgent.includes(SDK_VERSION));
+    });
+
+    it('should include version details by default', () => {
+      const userAgent = getUserAgent();
+      const userAgentExplicit = getUserAgent({ hideVersion: false });
+      assert.strictEqual(userAgent, userAgentExplicit);
+    });
   });
 
   describe('getKeyType', () => {
@@ -45,13 +62,6 @@ describe('Utility Functions', () => {
 
       const keyType = getKeyType(privateKey);
       assert.strictEqual(keyType, 'RSA');
-    });
-
-    it('should detect EC keys', async () => {
-      const { privateKey } = await jose.generateKeyPair('ES256');
-
-      const keyType = getKeyType(privateKey);
-      assert.strictEqual(keyType, 'EC');
     });
 
     it('should throw for unsupported key types', () => {
@@ -80,23 +90,6 @@ describe('Utility Functions', () => {
 
       const algorithm = getAlgorithmForKey(privateKey, 'enc');
       assert.strictEqual(algorithm, 'RSA-OAEP-256');
-    });
-
-    it('should return correct signing algorithms for EC keys', async () => {
-      const { privateKey: p256Key } = await jose.generateKeyPair('ES256');
-      const { privateKey: p384Key } = await jose.generateKeyPair('ES384');
-      const { privateKey: p521Key } = await jose.generateKeyPair('ES512');
-
-      assert.strictEqual(getAlgorithmForKey(p256Key, 'sig'), 'ES256');
-      assert.strictEqual(getAlgorithmForKey(p384Key, 'sig'), 'ES384');
-      assert.strictEqual(getAlgorithmForKey(p521Key, 'sig'), 'ES512');
-    });
-
-    it('should return correct encryption algorithms for EC keys', async () => {
-      const { privateKey } = await jose.generateKeyPair('ES256');
-
-      const algorithm = getAlgorithmForKey(privateKey, 'enc');
-      assert.strictEqual(algorithm, 'ECDH-ES+A256KW');
     });
 
     it('should default to signing algorithms when use not specified', async () => {
@@ -210,30 +203,6 @@ describe('Utility Functions', () => {
       assert.ok(jwk.kid);
       assert.ok(jwk.n);
       assert.strictEqual(jwk.e, 'AQAB');
-    });
-
-    it('should convert EC public key to JWK', async () => {
-      const { publicKey } = await jose.generateKeyPair('ES256');
-
-      const jwk = await publicKeyToJWK(publicKey);
-
-      assert.strictEqual(jwk.kty, 'EC');
-      assert.strictEqual(jwk.alg, 'ES256');
-      assert.strictEqual(jwk.crv, 'P-256');
-      assert.ok(jwk.kid);
-      assert.ok(jwk.x);
-      assert.ok(jwk.y);
-    });
-
-    it('should handle different EC curves', async () => {
-      const { publicKey: p384Key } = await jose.generateKeyPair('ES384');
-      const { publicKey: p521Key } = await jose.generateKeyPair('ES512');
-
-      const p384JWK = await publicKeyToJWK(p384Key);
-      const p521JWK = await publicKeyToJWK(p521Key);
-
-      assert.strictEqual(p384JWK.alg, 'ES384');
-      assert.strictEqual(p521JWK.alg, 'ES512');
     });
 
     it('should generate consistent key IDs', async () => {

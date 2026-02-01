@@ -11,12 +11,15 @@ export interface RecipientOptions {
   cacheTimeout?: number;
   maxRetries?: number;
   retryDelay?: number;
+  clockTolerance?: number; // Clock skew tolerance in seconds (default: 300 = 5 minutes)
+  hideUserAgentVersion?: boolean; // If true, omit version details from User-Agent header
 }
 
 export interface ProcessingResult {
   valid: boolean;
   issuer: string | null;
   expires: Date | null;
+  jti: string | null; // JWT ID for replay detection
   data: (Partial<Recipient> & Record<string, any>) | null;
   recipients: string[];
   errors: string[];
@@ -33,6 +36,8 @@ export default class TACRecipient {
   private readonly jwksCache: JWKSCache;
   private readonly maxRetries: number;
   private readonly retryDelay: number;
+  private readonly clockTolerance: number;
+  private readonly hideUserAgentVersion: boolean;
 
   /**
    * @param options - Configuration options
@@ -53,11 +58,13 @@ export default class TACRecipient {
     this.jwksCache = new JWKSCache(options.cacheTimeout || 3600000);
     this.maxRetries = options.maxRetries || 3;
     this.retryDelay = options.retryDelay || 1000;
+    this.clockTolerance = options.clockTolerance !== undefined ? options.clockTolerance : 300; // 5 minutes default
+    this.hideUserAgentVersion = options.hideUserAgentVersion || false;
   }
 
   /**
    * Set private key and automatically derive public key
-   * @param privateKey - Private key object or PEM string (RSA or EC)
+   * @param privateKey - Private key object or PEM string
    * @private
    */
   setPrivateKey(privateKey: KeyObject | string): void {
@@ -72,10 +79,10 @@ export default class TACRecipient {
     }
 
     // Verify it's a supported key type
-    const supportedTypes = ["rsa", "rsa-pss", "ec"];
+    const supportedTypes = ["rsa", "rsa-pss"];
     if (!supportedTypes.includes(this.privateKey.asymmetricKeyType!)) {
       throw new TACCryptoError(
-        "TAC Protocol requires RSA or EC (P-256/384/521) keys",
+        "TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)",
         TACErrorCodes.UNSUPPORTED_KEY_TYPE
       );
     }
@@ -109,7 +116,7 @@ export default class TACRecipient {
       maxRetries: this.maxRetries,
       retryDelay: this.retryDelay,
       maxDelay: this.retryDelay * 30,
-      userAgent: getUserAgent(),
+      userAgent: getUserAgent({ hideVersion: this.hideUserAgentVersion }),
       forceRefresh,
     });
   }
@@ -124,6 +131,7 @@ export default class TACRecipient {
       valid: false,
       issuer: null,
       expires: null,
+      jti: null, // JWT ID for replay detection
       data: null,
       recipients: [],
       errors: [],
@@ -134,16 +142,28 @@ export default class TACRecipient {
       return result;
     }
 
-    // Decode base64 message
+    // Decode base64 message (strictly required - raw JSON not accepted)
     let decodedMessage: string;
+
+    // Check if input looks like raw JSON (not base64 encoded)
+    const trimmed = tacMessage.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      result.errors.push("Invalid TAC-Protocol message: must be base64-encoded (raw JSON not accepted)");
+      return result;
+    }
+
+    // Validate base64 format
+    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+    if (!base64Regex.test(tacMessage)) {
+      result.errors.push("Invalid TAC-Protocol message: must be base64-encoded");
+      return result;
+    }
+
     try {
-      // Try to decode as base64 first
       decodedMessage = Buffer.from(tacMessage, "base64").toString("utf8");
-      // Validate it's valid JSON
-      JSON.parse(decodedMessage);
     } catch (e) {
-      // If base64 decode fails, assume it's already JSON (backward compatibility)
-      decodedMessage = tacMessage;
+      result.errors.push("Invalid TAC-Protocol message: must be base64-encoded");
+      return result;
     }
 
     try {
@@ -236,7 +256,7 @@ export default class TACRecipient {
         ({ payload } = await jose.jwtVerify(signedJWT, senderPublicKey, {
           issuer: agentDomain,
           audience: this.domain,
-          clockTolerance: "5m", // Allow 5 minutes clock skew
+          clockTolerance: this.clockTolerance, // Configurable clock skew tolerance
         }));
       } catch (error) {
         throw new TACCryptoError(
@@ -247,9 +267,8 @@ export default class TACRecipient {
 
       // Additional manual validation for iat claim (not validated by jose.jwtVerify by default)
       const now = Math.floor(Date.now() / 1000);
-      const clockTolerance = 300; // 5 minutes in seconds
 
-      if (payload.iat && payload.iat > now + clockTolerance) {
+      if (payload.iat && payload.iat > now + this.clockTolerance) {
         throw new TACMessageError("JWT not yet valid (issued in the future)", TACErrorCodes.JWT_NOT_YET_VALID);
       }
 
@@ -257,6 +276,7 @@ export default class TACRecipient {
       result.valid = true;
       result.issuer = payload.iss;
       result.expires = new Date(payload.exp * 1000);
+      result.jti = payload.jti || null; // JWT ID for replay detection
 
       // Get data specific to this recipient
       result.data = payload.data || null;
@@ -274,15 +294,26 @@ export default class TACRecipient {
    */
   static inspect(tacMessage: string): { version?: string; recipients: string[]; expires?: Date; error?: string } {
     try {
-      // Decode base64 message
-      let decodedMessage: string;
-      try {
-        decodedMessage = Buffer.from(tacMessage, "base64").toString("utf8");
-        JSON.parse(decodedMessage);
-      } catch (e) {
-        decodedMessage = tacMessage;
+      // Check if input looks like raw JSON (not base64 encoded)
+      const trimmed = tacMessage.trim();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        return {
+          error: "Invalid TAC-Protocol message: must be base64-encoded (raw JSON not accepted)",
+          recipients: [],
+        };
       }
 
+      // Validate base64 format
+      const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+      if (!base64Regex.test(tacMessage)) {
+        return {
+          error: "Invalid TAC-Protocol message: must be base64-encoded",
+          recipients: [],
+        };
+      }
+
+      // Decode base64 message
+      const decodedMessage = Buffer.from(tacMessage, "base64").toString("utf8");
       const message = JSON.parse(decodedMessage);
 
       return {

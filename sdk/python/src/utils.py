@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 try:
     from .errors import TACCryptoError, TACErrorCodes, TACNetworkError
@@ -20,8 +20,18 @@ except ImportError:
     from version import SCHEMA_VERSION, SDK_LANGUAGE, SDK_VERSION
 
 
-def get_user_agent() -> str:
-    """Get User-Agent string"""
+def get_user_agent(hide_version: bool = False) -> str:
+    """
+    Get User-Agent string
+
+    Args:
+        hide_version: If True, only return "TAC-Protocol" without version details
+
+    Returns:
+        User-Agent string
+    """
+    if hide_version:
+        return "TAC-Protocol"
     return f"TAC-Protocol/{SCHEMA_VERSION} ({SDK_LANGUAGE}/{SDK_VERSION})"
 
 
@@ -241,14 +251,15 @@ def get_key_type(key) -> str:
         key: Key object
 
     Returns:
-        Key type (RSA or EC)
+        Key type (RSA)
     """
     if isinstance(key, (rsa.RSAPrivateKey, rsa.RSAPublicKey)):
         return "RSA"
-    elif isinstance(key, (ec.EllipticCurvePrivateKey, ec.EllipticCurvePublicKey)):
-        return "EC"
     else:
-        raise TACCryptoError(f"Unsupported key type: {type(key)}", TACErrorCodes.UNSUPPORTED_KEY_TYPE)
+        raise TACCryptoError(
+            f"Unsupported key type: {type(key)}. TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)",
+            TACErrorCodes.UNSUPPORTED_KEY_TYPE
+        )
 
 
 def get_algorithm_for_key(key, use: str = "sig") -> str:
@@ -266,34 +277,16 @@ def get_algorithm_for_key(key, use: str = "sig") -> str:
 
     if key_type == "RSA":
         return "RS256" if use == "sig" else "RSA-OAEP-256"
-    elif key_type == "EC":
-        if use == "sig":
-            # Extract curve from public key
-            if hasattr(key, "curve"):
-                curve = key.curve
-            elif hasattr(key, "public_key"):
-                curve = key.public_key().curve
-            else:
-                return "ES256"  # Default
 
-            curve_name = curve.name
-            if curve_name in ["secp256r1", "prime256v1"]:
-                return "ES256"
-            elif curve_name == "secp384r1":
-                return "ES384"
-            elif curve_name == "secp521r1":
-                return "ES512"
-            else:
-                return "ES256"
-        else:
-            return "ECDH-ES+A256KW"
-
-    raise TACCryptoError(f"Unsupported key type: {key_type}", TACErrorCodes.UNSUPPORTED_KEY_TYPE)
+    raise TACCryptoError(
+        f"Unsupported key type: {key_type}. TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)",
+        TACErrorCodes.UNSUPPORTED_KEY_TYPE
+    )
 
 
 def find_encryption_key(keys: List[Dict]) -> Optional[Dict]:
     """
-    Find suitable encryption key from JWKS (supports RSA and EC bidirectional keys)
+    Find suitable encryption key from JWKS
 
     Args:
         keys: Array of JWK objects
@@ -301,38 +294,27 @@ def find_encryption_key(keys: List[Dict]) -> Optional[Dict]:
     Returns:
         Encryption JWK or None
     """
-    # Filter valid keys (supported types for bidirectional use)
-    valid_keys = [k for k in keys if is_key_valid(k) and k.get("kty") in ["RSA", "EC"]]
+    # Filter valid RSA keys
+    valid_keys = [k for k in keys if is_key_valid(k) and k.get("kty") == "RSA"]
 
-    # Prefer RSA keys for compatibility, then EC
-    key_types = ["RSA", "EC"]
+    for key in valid_keys:
+        # Skip keys that are explicitly marked as signature-only
+        if key.get("use") == "sig":
+            continue
 
-    for key_type in key_types:
-        type_keys = [k for k in valid_keys if k.get("kty") == key_type]
-
-        for key in type_keys:
-            # Skip keys that are explicitly marked as signature-only
-            if key.get("use") == "sig":
-                continue
-
-            # Accept keys with no 'use' field (dual-purpose) or 'enc' use
-            if not key.get("use") or key.get("use") == "enc":
-                # Return key with appropriate encryption algorithm
-                encryption_key = key.copy()
-
-                if key.get("kty") == "RSA":
-                    encryption_key["alg"] = "RSA-OAEP-256"
-                elif key.get("kty") == "EC":
-                    encryption_key["alg"] = "ECDH-ES+A256KW"
-
-                return encryption_key
+        # Accept keys with no 'use' field (dual-purpose) or 'enc' use
+        if not key.get("use") or key.get("use") == "enc":
+            # Return key with appropriate encryption algorithm
+            encryption_key = key.copy()
+            encryption_key["alg"] = "RSA-OAEP-256"
+            return encryption_key
 
     return None
 
 
 def find_signing_key(keys: List[Dict], key_id: Optional[str] = None) -> Optional[Dict]:
     """
-    Find suitable signing key from JWKS (supports RSA and EC)
+    Find suitable signing key from JWKS
 
     Args:
         keys: Array of JWK objects
@@ -341,31 +323,29 @@ def find_signing_key(keys: List[Dict], key_id: Optional[str] = None) -> Optional
     Returns:
         Signing JWK or None
     """
-    # Filter valid keys (supported types)
-    valid_keys = [k for k in keys if is_key_valid(k) and k.get("kty") in ["RSA", "EC"]]
+    # Filter valid RSA keys
+    valid_keys = [k for k in keys if is_key_valid(k) and k.get("kty") == "RSA"]
 
     if key_id:
         key = next((k for k in valid_keys if k.get("kid") == key_id), None)
         if key:
             return key
 
-    # Look for appropriate signing key by type
-    signing_algs = {"RSA": ["RS256", "RS384", "RS512"], "EC": ["ES256", "ES384", "ES512"]}
+    # Look for appropriate RSA signing key
+    signing_algs = ["RS256", "RS384", "RS512"]
 
-    for kty, algs in signing_algs.items():
-        for alg in algs:
-            key = next(
-                (
-                    k
-                    for k in valid_keys
-                    if k.get("kty") == kty
-                    and (k.get("use") == "sig" or not k.get("use"))
-                    and (k.get("alg") == alg or not k.get("alg"))
-                ),
-                None,
-            )
-            if key:
-                return key
+    for alg in signing_algs:
+        key = next(
+            (
+                k
+                for k in valid_keys
+                if (k.get("use") == "sig" or not k.get("use"))
+                and (k.get("alg") == alg or not k.get("alg"))
+            ),
+            None,
+        )
+        if key:
+            return key
 
     # Return any signing key
     return next((k for k in valid_keys if k.get("use") == "sig" or not k.get("use")), None)
@@ -385,6 +365,9 @@ def public_key_to_jwk(public_key, key_id: Optional[str] = None) -> Dict:
     if not public_key:
         raise TACCryptoError("No public key provided", TACErrorCodes.NO_PUBLIC_KEY)
 
+    # Verify key type is RSA
+    key_type = get_key_type(public_key)
+
     # Generate key ID if not provided
     if not key_id:
         try:
@@ -399,58 +382,19 @@ def public_key_to_jwk(public_key, key_id: Optional[str] = None) -> Dict:
         key_hash = hashlib.sha256(der_bytes).digest()
         key_id = base64.urlsafe_b64encode(key_hash).decode("ascii").rstrip("=")
 
-    key_type = get_key_type(public_key)
+    numbers = public_key.public_numbers()
 
-    if key_type == "RSA":
-        numbers = public_key.public_numbers()
+    # Convert to base64url encoding
+    def int_to_base64url(value):
+        byte_length = (value.bit_length() + 7) // 8
+        return base64.urlsafe_b64encode(value.to_bytes(byte_length, "big")).decode("ascii").rstrip("=")
 
-        # Convert to base64url encoding
-        def int_to_base64url(value):
-            byte_length = (value.bit_length() + 7) // 8
-            return base64.urlsafe_b64encode(value.to_bytes(byte_length, "big")).decode("ascii").rstrip("=")
-
-        jwk = {
-            "kty": "RSA",
-            "kid": key_id,
-            "n": int_to_base64url(numbers.n),
-            "e": int_to_base64url(numbers.e),
-            "alg": "RS256",  # Default for RSA
-        }
-
-    elif key_type == "EC":
-        numbers = public_key.public_numbers()
-        curve = public_key.curve
-
-        # Determine curve parameters
-        if curve.name in ["secp256r1", "prime256v1"]:
-            crv = "P-256"
-            coord_size = 32
-            alg = "ES256"
-        elif curve.name == "secp384r1":
-            crv = "P-384"
-            coord_size = 48
-            alg = "ES384"
-        elif curve.name == "secp521r1":
-            crv = "P-521"
-            coord_size = 66
-            alg = "ES512"
-        else:
-            raise TACCryptoError(f"Unsupported curve: {curve.name}", TACErrorCodes.UNSUPPORTED_KEY_TYPE)
-
-        # Convert coordinates to base64url encoding
-        def coord_to_base64url(value, size):
-            return base64.urlsafe_b64encode(value.to_bytes(size, "big")).decode("ascii").rstrip("=")
-
-        jwk = {
-            "kty": "EC",
-            "kid": key_id,
-            "crv": crv,
-            "x": coord_to_base64url(numbers.x, coord_size),
-            "y": coord_to_base64url(numbers.y, coord_size),
-            "alg": alg,
-        }
-
-    else:
-        raise TACCryptoError(f"Unsupported key type: {key_type}", TACErrorCodes.UNSUPPORTED_KEY_TYPE)
+    jwk = {
+        "kty": "RSA",
+        "kid": key_id,
+        "n": int_to_base64url(numbers.n),
+        "e": int_to_base64url(numbers.e),
+        "alg": "RS256",  # Default for RSA
+    }
 
     return jwk

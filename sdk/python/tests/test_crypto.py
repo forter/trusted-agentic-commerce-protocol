@@ -11,7 +11,7 @@ import sys
 import unittest
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 # Add src directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -48,29 +48,6 @@ class TestKeyManagement(unittest.TestCase):
         self.assertEqual(get_key_type(private_key), "RSA")
         self.assertIsNotNone(sender)  # Verify sender was created successfully
 
-    def test_ec_p256_keys(self):
-        """Test EC P-256 key support"""
-        private_key = ec.generate_private_key(ec.SECP256R1())
-
-        sender = TACSender(domain="test.com", private_key=private_key)
-        self.assertEqual(get_key_type(private_key), "EC")
-        self.assertIsNotNone(sender)  # Verify sender was created successfully
-
-    def test_ec_p384_keys(self):
-        """Test EC P-384 key support"""
-        private_key = ec.generate_private_key(ec.SECP384R1())
-
-        sender = TACSender(domain="test.com", private_key=private_key)
-        self.assertEqual(get_key_type(private_key), "EC")
-        self.assertIsNotNone(sender)  # Verify sender was created successfully
-
-    def test_ec_p521_keys(self):
-        """Test EC P-521 key support"""
-        private_key = ec.generate_private_key(ec.SECP521R1())
-
-        sender = TACSender(domain="test.com", private_key=private_key)
-        self.assertEqual(get_key_type(private_key), "EC")
-        self.assertIsNotNone(sender)  # Verify sender was created successfully
 
 
 class TestInvalidKeys(unittest.TestCase):
@@ -150,23 +127,6 @@ class TestJWKExport(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_export_ec_public_key_as_jwk(self):
-        """Test exporting EC public key as JWK"""
-        private_key = ec.generate_private_key(ec.SECP256R1())
-
-        sender = TACSender(domain="test.com", private_key=private_key)
-
-        async def run_test():
-            jwk = await sender.get_public_jwk()
-            self.assertEqual(jwk["kty"], "EC")
-            self.assertEqual(jwk["alg"], "ES256")
-            self.assertEqual(jwk["crv"], "P-256")
-            self.assertIn("kid", jwk)
-            self.assertIn("x", jwk)
-            self.assertIn("y", jwk)
-
-        asyncio.run(run_test())
-
     def test_include_key_id_in_exported_jwk(self):
         """Test that key ID is included in exported JWK"""
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -192,26 +152,6 @@ class TestAlgorithmSelection(unittest.TestCase):
         algorithm = get_algorithm_for_key(private_key, "sig")
         self.assertEqual(algorithm, "RS256")
 
-    def test_correct_signing_algorithm_for_ec_p256(self):
-        """Test correct signing algorithm for EC P-256"""
-        private_key = ec.generate_private_key(ec.SECP256R1())
-
-        algorithm = get_algorithm_for_key(private_key, "sig")
-        self.assertEqual(algorithm, "ES256")
-
-    def test_correct_signing_algorithm_for_ec_p384(self):
-        """Test correct signing algorithm for EC P-384"""
-        private_key = ec.generate_private_key(ec.SECP384R1())
-
-        algorithm = get_algorithm_for_key(private_key, "sig")
-        self.assertEqual(algorithm, "ES384")
-
-    def test_correct_signing_algorithm_for_ec_p521(self):
-        """Test correct signing algorithm for EC P-521"""
-        private_key = ec.generate_private_key(ec.SECP521R1())
-
-        algorithm = get_algorithm_for_key(private_key, "sig")
-        self.assertEqual(algorithm, "ES512")
 
 
 class TestStringKeySupport(unittest.TestCase):
@@ -220,21 +160,6 @@ class TestStringKeySupport(unittest.TestCase):
     def test_pem_encoded_rsa_private_keys(self):
         """Test support for PEM-encoded RSA private keys"""
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-
-        pem_bytes = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-
-        pem_string = pem_bytes.decode("utf-8")
-
-        sender = TACSender(domain="test.com", private_key=pem_string)
-        self.assertEqual(sender.domain, "test.com")
-
-    def test_pem_encoded_ec_private_keys(self):
-        """Test support for PEM-encoded EC private keys"""
-        private_key = ec.generate_private_key(ec.SECP256R1())
 
         pem_bytes = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,

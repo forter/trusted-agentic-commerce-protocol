@@ -344,61 +344,6 @@ describe("TACSender - Message Generation", () => {
       }
     });
 
-    it("should handle mix of RSA and EC recipients", async () => {
-      const rsaKeys = await jose.generateKeyPair("RS256", { modulusLength: 2048 });
-      const ecKeys = await jose.generateKeyPair("ES256");
-
-      const rsaJWK = await jose.exportJWK(rsaKeys.publicKey);
-      const ecJWK = await jose.exportJWK(ecKeys.publicKey);
-
-      (sender as any).fetchJWKS = async (domain: string) => {
-        if (domain === "rsa-recipient.com") {
-          return [
-            {
-              ...rsaJWK,
-              kid: "rsa-recipient.com",
-              use: "enc",
-              alg: "RSA-OAEP-256",
-            },
-          ];
-        } else if (domain === "ec-recipient.com") {
-          return [
-            {
-              ...ecJWK,
-              kid: "ec-recipient.com",
-              use: "enc",
-              alg: "ECDH-ES+A256KW",
-            },
-          ];
-        }
-        throw new Error("Unknown domain");
-      };
-
-      await sender.setRecipientsData({
-        "rsa-recipient.com": { data: "for RSA recipient" },
-        "ec-recipient.com": { data: "for EC recipient" },
-      });
-
-      const tacMessage = await sender.generateTACMessage();
-      const decodedMessage = Buffer.from(tacMessage, "base64").toString("utf8");
-      const message = JSON.parse(decodedMessage);
-
-      assert.strictEqual(message.recipients.length, 2);
-
-      // Both recipients should be able to decrypt their messages
-      for (const recipient of message.recipients) {
-        if (recipient.kid === "rsa-recipient.com") {
-          const senderPublicKey = await jose.importJWK(await jose.exportJWK(senderKeys.publicKey));
-          const decrypted = await decryptAndVerifyMessage(recipient.jwe, rsaKeys.privateKey, senderPublicKey);
-          assert.deepStrictEqual(decrypted.payload.data, { data: "for RSA recipient" });
-        } else if (recipient.kid === "ec-recipient.com") {
-          const senderPublicKey2 = await jose.importJWK(await jose.exportJWK(senderKeys.publicKey));
-          const decrypted = await decryptAndVerifyMessage(recipient.jwe, ecKeys.privateKey, senderPublicKey2);
-          assert.deepStrictEqual(decrypted.payload.data, { data: "for EC recipient" });
-        }
-      }
-    });
-
     it("should ensure recipient data isolation", async () => {
       const recipient1Keys = await jose.generateKeyPair("RS256", { modulusLength: 2048 });
       const recipient2Keys = await jose.generateKeyPair("RS256", { modulusLength: 2048 });

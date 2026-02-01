@@ -339,61 +339,6 @@ describe('TACSender - Message Generation', () => {
       }
     });
 
-    it('should handle mix of RSA and EC recipients', async () => {
-      const rsaKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-      const ecKeys = await jose.generateKeyPair('ES256');
-
-      const rsaJWK = await jose.exportJWK(rsaKeys.publicKey);
-      const ecJWK = await jose.exportJWK(ecKeys.publicKey);
-
-      sender.fetchJWKS = async domain => {
-        if (domain === 'rsa-recipient.com') {
-          return [
-            {
-              ...rsaJWK,
-              kid: 'rsa-recipient.com',
-              use: 'enc',
-              alg: 'RSA-OAEP-256'
-            }
-          ];
-        } else if (domain === 'ec-recipient.com') {
-          return [
-            {
-              ...ecJWK,
-              kid: 'ec-recipient.com',
-              use: 'enc',
-              alg: 'ECDH-ES+A256KW'
-            }
-          ];
-        }
-        throw new Error('Unknown domain');
-      };
-
-      await sender.setRecipientsData({
-        'rsa-recipient.com': { data: 'for RSA recipient' },
-        'ec-recipient.com': { data: 'for EC recipient' }
-      });
-
-      const tacMessage = await sender.generateTACMessage();
-      const decodedMessage = Buffer.from(tacMessage, 'base64').toString('utf8');
-      const message = JSON.parse(decodedMessage);
-
-      assert.strictEqual(message.recipients.length, 2);
-
-      // Both recipients should be able to decrypt their messages
-      for (const recipient of message.recipients) {
-        if (recipient.kid === 'rsa-recipient.com') {
-          const senderPublicKey = await jose.importJWK(await jose.exportJWK(senderKeys.publicKey));
-          const decrypted = await decryptAndVerifyMessage(recipient.jwe, rsaKeys.privateKey, senderPublicKey);
-          assert.deepStrictEqual(decrypted.payload.data, { data: 'for RSA recipient' });
-        } else if (recipient.kid === 'ec-recipient.com') {
-          const senderPublicKey2 = await jose.importJWK(await jose.exportJWK(senderKeys.publicKey));
-          const decrypted = await decryptAndVerifyMessage(recipient.jwe, ecKeys.privateKey, senderPublicKey2);
-          assert.deepStrictEqual(decrypted.payload.data, { data: 'for EC recipient' });
-        }
-      }
-    });
-
     it('should ensure recipient data isolation', async () => {
       const recipient1Keys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
       const recipient2Keys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
@@ -784,6 +729,111 @@ describe('TACSender - Message Generation', () => {
       await sender.addRecipientData('unreachable.com', { test: 'data' });
 
       await assert.rejects(async () => await sender.generateTACMessage(), /Network error/);
+    });
+  });
+
+  describe('JWT ID (jti) Claim', () => {
+    it('should include jti claim in JWT payload', async () => {
+      const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+      const recipientJWK = await jose.exportJWK(recipientKeys.publicKey);
+
+      sender.fetchJWKS = async () => [
+        {
+          ...recipientJWK,
+          kid: 'recipient.com',
+          use: 'enc',
+          alg: 'RSA-OAEP-256'
+        }
+      ];
+
+      await sender.addRecipientData('recipient.com', { test: 'data' });
+      const tacMessage = await sender.generateTACMessage();
+
+      const decodedMessage = Buffer.from(tacMessage, 'base64').toString('utf8');
+      const message = JSON.parse(decodedMessage);
+      const recipientJWE = message.recipients[0].jwe;
+
+      const senderPublicKey = await jose.importJWK(await jose.exportJWK(senderKeys.publicKey));
+      const { payload } = await decryptAndVerifyMessage(recipientJWE, recipientKeys.privateKey, senderPublicKey);
+
+      assert.ok(payload.jti, 'Should have jti claim');
+      assert.strictEqual(typeof payload.jti, 'string');
+      // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      assert.ok(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.jti), 'jti should be a valid UUID');
+    });
+
+    it('should generate unique jti for each message', async () => {
+      const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+      const recipientJWK = await jose.exportJWK(recipientKeys.publicKey);
+
+      sender.fetchJWKS = async () => [
+        {
+          ...recipientJWK,
+          kid: 'recipient.com',
+          use: 'enc',
+          alg: 'RSA-OAEP-256'
+        }
+      ];
+
+      // Generate first message
+      await sender.addRecipientData('recipient.com', { test: 'data1' });
+      const tacMessage1 = await sender.generateTACMessage();
+
+      // Generate second message
+      sender.clearRecipientData();
+      await sender.addRecipientData('recipient.com', { test: 'data2' });
+      const tacMessage2 = await sender.generateTACMessage();
+
+      // Extract jti from both messages
+      const senderPublicKey = await jose.importJWK(await jose.exportJWK(senderKeys.publicKey));
+
+      const decodedMessage1 = Buffer.from(tacMessage1, 'base64').toString('utf8');
+      const message1 = JSON.parse(decodedMessage1);
+      const { payload: payload1 } = await decryptAndVerifyMessage(message1.recipients[0].jwe, recipientKeys.privateKey, senderPublicKey);
+
+      const decodedMessage2 = Buffer.from(tacMessage2, 'base64').toString('utf8');
+      const message2 = JSON.parse(decodedMessage2);
+      const { payload: payload2 } = await decryptAndVerifyMessage(message2.recipients[0].jwe, recipientKeys.privateKey, senderPublicKey);
+
+      assert.notStrictEqual(payload1.jti, payload2.jti, 'Each message should have a unique jti');
+    });
+
+    it('should generate unique jti for each recipient in multi-recipient message', async () => {
+      const recipient1Keys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+      const recipient2Keys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+
+      const recipient1JWK = await jose.exportJWK(recipient1Keys.publicKey);
+      const recipient2JWK = await jose.exportJWK(recipient2Keys.publicKey);
+
+      sender.fetchJWKS = async domain => {
+        if (domain === 'recipient1.com') {
+          return [{ ...recipient1JWK, kid: 'recipient1.com', use: 'enc', alg: 'RSA-OAEP-256' }];
+        } else if (domain === 'recipient2.com') {
+          return [{ ...recipient2JWK, kid: 'recipient2.com', use: 'enc', alg: 'RSA-OAEP-256' }];
+        }
+        throw new Error('Unknown domain');
+      };
+
+      await sender.setRecipientsData({
+        'recipient1.com': { data: 'for recipient 1' },
+        'recipient2.com': { data: 'for recipient 2' }
+      });
+
+      const tacMessage = await sender.generateTACMessage();
+      const decodedMessage = Buffer.from(tacMessage, 'base64').toString('utf8');
+      const message = JSON.parse(decodedMessage);
+
+      const senderPublicKey = await jose.importJWK(await jose.exportJWK(senderKeys.publicKey));
+      const jtis = [];
+
+      for (const recipient of message.recipients) {
+        const privateKey = recipient.kid === 'recipient1.com' ? recipient1Keys.privateKey : recipient2Keys.privateKey;
+        const { payload } = await decryptAndVerifyMessage(recipient.jwe, privateKey, senderPublicKey);
+        jtis.push(payload.jti);
+      }
+
+      assert.strictEqual(jtis.length, 2);
+      assert.notStrictEqual(jtis[0], jtis[1], 'Each recipient should have a unique jti');
     });
   });
 });

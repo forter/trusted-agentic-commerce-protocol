@@ -8,12 +8,33 @@ import TACRecipient from '../src/recipient.js';
 import { SCHEMA_VERSION } from '../src/version.js';
 import { TACNetworkError, TACErrorCodes } from '../src/errors.js';
 
+/**
+ * Generate an RSA key pair for testing
+ */
+async function generateRSAKey() {
+  return jose.generateKeyPair('RS256', { modulusLength: 2048 });
+}
+
+/**
+ * Set up JWKS exchange between sender and recipient.
+ * In production, each party's public key is fetched from their domain's JWKS endpoint.
+ * This helper mocks those fetches to return the correct public keys.
+ */
+async function setupJWKSExchange(sender, recipient) {
+  const senderJWK = await sender.getPublicJWK();
+  const recipientJWK = await recipient.getPublicJWK();
+
+  sender.fetchJWKS = async () => [recipientJWK];
+  recipient.fetchJWKS = async () => [senderJWK];
+}
+
 describe('Integration Tests', () => {
   describe('End-to-End Scenarios', () => {
     describe('Round-Trip Communication', () => {
       it('should complete full sender → recipient round trip', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        // Each party only has their own private key
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'ai-agent.example.com',
@@ -26,12 +47,8 @@ describe('Integration Tests', () => {
           privateKey: recipientKeys.privateKey
         });
 
-        // Setup JWKS mocking
-        const recipientJWK = await recipient.getPublicJWK();
-        const senderJWK = await sender.getPublicJWK();
-
-        sender.fetchJWKS = async () => [recipientJWK];
-        recipient.fetchJWKS = async () => [senderJWK];
+        // JWKS exchange - public keys fetched from respective domains
+        await setupJWKSExchange(sender, recipient);
 
         // Prepare realistic e-commerce data
         const ecommerceData = {
@@ -71,10 +88,10 @@ describe('Integration Tests', () => {
       });
 
       it('should handle multi-vendor commerce scenario', async () => {
-        // Setup: AI agent, merchant, and fraud prevention service
-        const agentKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const merchantKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const forterKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        // Each party only has their own private key
+        const agentKeys = await generateRSAKey();
+        const merchantKeys = await generateRSAKey();
+        const forterKeys = await generateRSAKey();
 
         const agent = new TACSender({
           domain: 'ai-shopping-agent.com',
@@ -92,18 +109,14 @@ describe('Integration Tests', () => {
           privateKey: forterKeys.privateKey
         });
 
-        // Setup JWKS
+        // JWKS exchange - public keys fetched from respective domains
         const merchantJWK = await merchant.getPublicJWK();
         const forterJWK = await forter.getPublicJWK();
         const agentJWK = await agent.getPublicJWK();
 
         agent.fetchJWKS = async domain => {
-          if (domain === 'premium-electronics.com') {
-            return [merchantJWK];
-          }
-          if (domain === 'forter.com') {
-            return [forterJWK];
-          }
+          if (domain === 'premium-electronics.com') return [merchantJWK];
+          if (domain === 'forter.com') return [forterJWK];
           throw new Error(`Unknown domain: ${domain}`);
         };
 
@@ -187,102 +200,12 @@ describe('Integration Tests', () => {
       });
     });
 
-    describe('Cross-SDK Compatibility', () => {
-      it('should be compatible with different key types', async () => {
-        // RSA sender, EC recipient
-        const rsaSenderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const ecRecipientKeys = await jose.generateKeyPair('ES256');
-
-        const rsaSender = new TACSender({
-          domain: 'rsa-agent.com',
-          privateKey: rsaSenderKeys.privateKey
-        });
-
-        const ecRecipient = new TACRecipient({
-          domain: 'ec-service.com',
-          privateKey: ecRecipientKeys.privateKey
-        });
-
-        // Setup cross-crypto communication
-        const ecJWK = await ecRecipient.getPublicJWK();
-        const rsaJWK = await rsaSender.getPublicJWK();
-
-        rsaSender.fetchJWKS = async () => [ecJWK];
-        ecRecipient.fetchJWKS = async () => [rsaJWK];
-
-        await rsaSender.addRecipientData('ec-service.com', {
-          crossCrypto: 'RSA sender to EC recipient',
-          timestamp: Date.now()
-        });
-
-        const tacMessage = await rsaSender.generateTACMessage();
-        const result = await ecRecipient.processTACMessage(tacMessage);
-
-        assert.strictEqual(result.valid, true);
-        assert.strictEqual(result.data.crossCrypto, 'RSA sender to EC recipient');
-      });
-
-      it('should handle mixed RSA and EC recipients', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const rsaRecipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const ecRecipientKeys = await jose.generateKeyPair('ES256');
-
-        const sender = new TACSender({
-          domain: 'multi-crypto-agent.com',
-          privateKey: senderKeys.privateKey
-        });
-
-        const rsaRecipient = new TACRecipient({
-          domain: 'rsa-service.com',
-          privateKey: rsaRecipientKeys.privateKey
-        });
-
-        const ecRecipient = new TACRecipient({
-          domain: 'ec-service.com',
-          privateKey: ecRecipientKeys.privateKey
-        });
-
-        // Setup JWKS
-        const rsaJWK = await rsaRecipient.getPublicJWK();
-        const ecJWK = await ecRecipient.getPublicJWK();
-        const senderJWK = await sender.getPublicJWK();
-
-        sender.fetchJWKS = async domain => {
-          if (domain === 'rsa-service.com') {
-            return [rsaJWK];
-          }
-          if (domain === 'ec-service.com') {
-            return [ecJWK];
-          }
-          throw new Error(`Unknown domain: ${domain}`);
-        };
-
-        rsaRecipient.fetchJWKS = async () => [senderJWK];
-        ecRecipient.fetchJWKS = async () => [senderJWK];
-
-        await sender.setRecipientsData({
-          'rsa-service.com': { cryptoType: 'RSA', data: 'RSA recipient data' },
-          'ec-service.com': { cryptoType: 'EC', data: 'EC recipient data' }
-        });
-
-        const tacMessage = await sender.generateTACMessage();
-
-        const rsaResult = await rsaRecipient.processTACMessage(tacMessage);
-        const ecResult = await ecRecipient.processTACMessage(tacMessage);
-
-        assert.strictEqual(rsaResult.valid, true);
-        assert.strictEqual(rsaResult.data.cryptoType, 'RSA');
-
-        assert.strictEqual(ecResult.valid, true);
-        assert.strictEqual(ecResult.data.cryptoType, 'EC');
-      });
-    });
-
     describe('Key Rotation Scenarios', () => {
       it('should handle key rotation during operation', async () => {
-        const senderKeys1 = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const senderKeys2 = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        // Sender has two keys (old and new for rotation)
+        const senderKeys1 = await generateRSAKey();
+        const senderKeys2 = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'rotating-agent.com',
@@ -296,29 +219,26 @@ describe('Integration Tests', () => {
 
         const recipientJWK = await recipient.getPublicJWK();
         const senderJWK1 = await jose.exportJWK(senderKeys1.publicKey);
-        const senderJWK2 = await jose.exportJWK(senderKeys2.publicKey);
 
-        // Ensure both keys have proper kid for identification
-        // The key IDs should match what the sender will generate
-        const keyId1 = await sender.generateKeyId(); // Current key's ID
+        // Get key ID for the first key
+        const keyId1 = await sender.generateKeyId();
         senderJWK1.kid = keyId1;
 
-        // Initial setup
+        // Initial setup - sender encrypts for recipient, recipient verifies from sender
         sender.fetchJWKS = async () => [recipientJWK];
-        recipient.fetchJWKS = async () => [senderJWK1]; // Old key
+        recipient.fetchJWKS = async () => [senderJWK1];
 
         await sender.addRecipientData('recipient.com', { phase: 'before rotation' });
         const message1 = await sender.generateTACMessage();
 
         // Rotate sender key
         sender.setPrivateKey(senderKeys2.privateKey);
-
-        // Generate key ID for the new key
-        const keyId2 = await sender.generateKeyId(); // New key's ID
+        const senderJWK2 = await jose.exportJWK(senderKeys2.publicKey);
+        const keyId2 = await sender.generateKeyId();
         senderJWK2.kid = keyId2;
 
         // Update recipient's JWKS to include both keys
-        recipient.fetchJWKS = async () => [senderJWK1, senderJWK2]; // Both keys
+        recipient.fetchJWKS = async () => [senderJWK1, senderJWK2];
 
         await sender.addRecipientData('recipient.com', { phase: 'after rotation' });
         const message2 = await sender.generateTACMessage();
@@ -329,24 +249,14 @@ describe('Integration Tests', () => {
 
         assert.strictEqual(result1.valid, true);
         assert.strictEqual(result1.data.phase, 'before rotation');
-
-        // Debug result2 if it fails
-        if (!result2.valid) {
-          // eslint-disable-next-line no-console
-          console.log('Key rotation test - result2 errors:', result2.errors);
-          // eslint-disable-next-line no-console
-          console.log('Available keys in JWKS:', [senderJWK1.kid, senderJWK2.kid]);
-          // eslint-disable-next-line no-console
-          console.log('KeyId1:', keyId1, 'KeyId2:', keyId2);
-        }
         assert.strictEqual(result2.valid, true);
         assert.strictEqual(result2.data.phase, 'after rotation');
       });
 
       it('should handle expired keys gracefully', async () => {
         const now = Math.floor(Date.now() / 1000);
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'expiring-agent.com',
@@ -361,7 +271,7 @@ describe('Integration Tests', () => {
         const recipientJWK = await recipient.getPublicJWK();
         const senderJWK = await sender.getPublicJWK();
 
-        // Add expiration to sender's key
+        // Add expiration to sender's key - simulates expired key in JWKS
         senderJWK.exp = now - 3600; // Expired 1 hour ago
 
         sender.fetchJWKS = async () => [recipientJWK];
@@ -379,8 +289,8 @@ describe('Integration Tests', () => {
 
       it('should handle future keys (nbf)', async () => {
         const now = Math.floor(Date.now() / 1000);
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'future-agent.com',
@@ -395,7 +305,7 @@ describe('Integration Tests', () => {
         const recipientJWK = await recipient.getPublicJWK();
         const senderJWK = await sender.getPublicJWK();
 
-        // Add not-before to sender's key
+        // Add not-before to sender's key - simulates future key in JWKS
         senderJWK.nbf = now + 3600; // Valid in 1 hour
 
         sender.fetchJWKS = async () => [recipientJWK];
@@ -406,7 +316,6 @@ describe('Integration Tests', () => {
 
         const result = await recipient.processTACMessage(tacMessage);
 
-        // Our implementation DOES validate nbf on JWK keys (which is good security)
         // Keys with future nbf should be rejected
         assert.strictEqual(result.valid, false);
         assert.ok(
@@ -421,8 +330,8 @@ describe('Integration Tests', () => {
   describe('Performance Tests', () => {
     describe('Large Payload Handling', () => {
       it('should handle 1MB payload efficiently', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'large-data-agent.com',
@@ -434,12 +343,8 @@ describe('Integration Tests', () => {
           privateKey: recipientKeys.privateKey
         });
 
-        // Setup JWKS
-        const recipientJWK = await recipient.getPublicJWK();
-        const senderJWK = await sender.getPublicJWK();
-
-        sender.fetchJWKS = async () => [recipientJWK];
-        recipient.fetchJWKS = async () => [senderJWK];
+        // JWKS exchange
+        await setupJWKSExchange(sender, recipient);
 
         // Create ~1MB payload
         const largeData = {
@@ -476,8 +381,8 @@ describe('Integration Tests', () => {
       });
 
       it('should handle 10MB payload (stress test)', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'stress-test-agent.com',
@@ -489,11 +394,8 @@ describe('Integration Tests', () => {
           privateKey: recipientKeys.privateKey
         });
 
-        const recipientJWK = await recipient.getPublicJWK();
-        const senderJWK = await sender.getPublicJWK();
-
-        sender.fetchJWKS = async () => [recipientJWK];
-        recipient.fetchJWKS = async () => [senderJWK];
+        // JWKS exchange
+        await setupJWKSExchange(sender, recipient);
 
         // Create ~10MB payload
         const veryLargeData = {
@@ -531,7 +433,7 @@ describe('Integration Tests', () => {
 
     describe('High Recipient Count', () => {
       it('should handle 100+ recipients efficiently', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
         const numRecipients = 100;
 
         const sender = new TACSender({
@@ -539,13 +441,13 @@ describe('Integration Tests', () => {
           privateKey: senderKeys.privateKey
         });
 
-        // Generate recipients and their data
+        // Generate recipients - each only has their own private key
         const recipients = [];
         const recipientData = {};
 
         for (let i = 1; i <= numRecipients; i++) {
           const domain = `recipient${i}.example.com`;
-          const keys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+          const keys = await generateRSAKey();
           recipients.push({ domain, keys });
           recipientData[domain] = {
             recipientId: i,
@@ -554,19 +456,12 @@ describe('Integration Tests', () => {
           };
         }
 
-        // Setup JWKS fetching
+        // Sender fetches each recipient's public key from their domain
         sender.fetchJWKS = async domain => {
           const recipient = recipients.find(r => r.domain === domain);
           if (recipient) {
             const jwk = await jose.exportJWK(recipient.keys.publicKey);
-            return [
-              {
-                ...jwk,
-                kid: domain,
-                use: 'enc',
-                alg: 'RSA-OAEP-256'
-              }
-            ];
+            return [{ ...jwk, kid: domain, use: 'enc', alg: 'RSA-OAEP-256' }];
           }
           throw new Error(`Unknown domain: ${domain}`);
         };
@@ -587,15 +482,17 @@ describe('Integration Tests', () => {
         assert.ok(totalMs < 60000, `Generation took ${totalMs}ms, should be < 60000ms`);
 
         // Test a few recipients can decrypt their data
+        const senderJWK = await sender.getPublicJWK();
         const sampleRecipients = recipients.slice(0, 5);
 
         for (const { domain, keys } of sampleRecipients) {
+          // Each recipient only has their own private key
           const recipientInstance = new TACRecipient({
             domain: domain,
             privateKey: keys.privateKey
           });
 
-          const senderJWK = await sender.getPublicJWK();
+          // Recipient fetches sender's public key from sender's domain
           recipientInstance.fetchJWKS = async () => [senderJWK];
 
           const result = await recipientInstance.processTACMessage(tacMessage);
@@ -611,7 +508,7 @@ describe('Integration Tests', () => {
       it('should demonstrate cache hit/miss performance', async () => {
         const sender = new TACSender({
           domain: 'cache-test-agent.com',
-          privateKey: (await jose.generateKeyPair('RS256', { modulusLength: 2048 })).privateKey
+          privateKey: (await generateRSAKey()).privateKey
         });
 
         const cache = sender.jwksCache;
@@ -638,7 +535,7 @@ describe('Integration Tests', () => {
       it('should handle high-frequency cache operations', async () => {
         const sender = new TACSender({
           domain: 'high-freq-agent.com',
-          privateKey: (await jose.generateKeyPair('RS256', { modulusLength: 2048 })).privateKey
+          privateKey: (await generateRSAKey()).privateKey
         });
 
         const cache = sender.jwksCache;
@@ -666,23 +563,17 @@ describe('Integration Tests', () => {
 
     describe('Concurrent Operations', () => {
       it('should handle concurrent message generation', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'concurrent-agent.com',
           privateKey: senderKeys.privateKey
         });
 
+        // Sender fetches recipient's public key from domain
         const recipientJWK = await jose.exportJWK(recipientKeys.publicKey);
-        sender.fetchJWKS = async () => [
-          {
-            ...recipientJWK,
-            kid: 'recipient.com',
-            use: 'enc',
-            alg: 'RSA-OAEP-256'
-          }
-        ];
+        sender.fetchJWKS = async () => [{ ...recipientJWK, kid: 'recipient.com', use: 'enc', alg: 'RSA-OAEP-256' }];
 
         const concurrentCount = 10;
         const startTime = process.hrtime.bigint();
@@ -713,8 +604,8 @@ describe('Integration Tests', () => {
       });
 
       it('should handle concurrent message processing', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'sender.com',
@@ -726,11 +617,8 @@ describe('Integration Tests', () => {
           privateKey: recipientKeys.privateKey
         });
 
-        const recipientJWK = await recipient.getPublicJWK();
-        const senderJWK = await sender.getPublicJWK();
-
-        sender.fetchJWKS = async () => [recipientJWK];
-        recipient.fetchJWKS = async () => [senderJWK];
+        // JWKS exchange
+        await setupJWKSExchange(sender, recipient);
 
         // Generate multiple messages
         const messages = [];
@@ -784,15 +672,14 @@ describe('Integration Tests', () => {
       });
 
       it('should reject weak algorithms', async () => {
-        // This test tries to use an unsupported algorithm
-        const validKey = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const validKey = await generateRSAKey();
         const sender = new TACSender({
           domain: 'test.com',
           privateKey: validKey.privateKey
         });
 
-        // Mock JWKS fetch to succeed
-        const recipientKey = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        // Mock JWKS fetch - sender fetches recipient's public key
+        const recipientKey = await generateRSAKey();
         const recipientJWK = await jose.exportJWK(recipientKey.publicKey);
         sender.fetchJWKS = async () => [recipientJWK];
 
@@ -815,8 +702,8 @@ describe('Integration Tests', () => {
       });
 
       it('should prevent replay attacks through expiration', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         // Create sender with very short TTL
         const sender = new TACSender({
@@ -830,11 +717,8 @@ describe('Integration Tests', () => {
           privateKey: recipientKeys.privateKey
         });
 
-        const recipientJWK = await recipient.getPublicJWK();
-        const senderJWK = await sender.getPublicJWK();
-
-        sender.fetchJWKS = async () => [recipientJWK];
-        recipient.fetchJWKS = async () => [senderJWK];
+        // JWKS exchange
+        await setupJWKSExchange(sender, recipient);
 
         await sender.addRecipientData('recipient.com', { data: 'time-sensitive' });
         const tacMessage = await sender.generateTACMessage();
@@ -862,8 +746,8 @@ describe('Integration Tests', () => {
       });
 
       it('should validate time-based claims strictly', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
         const recipient = new TACRecipient({
           domain: 'recipient.com',
           privateKey: recipientKeys.privateKey
@@ -903,8 +787,8 @@ describe('Integration Tests', () => {
 
     describe('Input Security', () => {
       it('should resist prototype pollution attacks', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'pollution-test.com',
@@ -916,11 +800,8 @@ describe('Integration Tests', () => {
           privateKey: recipientKeys.privateKey
         });
 
-        const recipientJWK = await recipient.getPublicJWK();
-        const senderJWK = await sender.getPublicJWK();
-
-        sender.fetchJWKS = async () => [recipientJWK];
-        recipient.fetchJWKS = async () => [senderJWK];
+        // JWKS exchange
+        await setupJWKSExchange(sender, recipient);
 
         // Attempt prototype pollution
         const pollutionData = JSON.parse(
@@ -939,7 +820,7 @@ describe('Integration Tests', () => {
       });
 
       it('should handle resource exhaustion attempts', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'dos-test.com',
@@ -970,7 +851,7 @@ describe('Integration Tests', () => {
       });
 
       it('should validate domain names to prevent SSRF', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'ssrf-test.com',
@@ -1014,8 +895,8 @@ describe('Integration Tests', () => {
 
     describe('Side-Channel Attack Resistance', () => {
       it('should use constant-time operations where possible', async () => {
-        const senderKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
-        const recipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+        const senderKeys = await generateRSAKey();
+        const recipientKeys = await generateRSAKey();
 
         const sender = new TACSender({
           domain: 'timing-test.com',
@@ -1027,11 +908,8 @@ describe('Integration Tests', () => {
           privateKey: recipientKeys.privateKey
         });
 
-        const recipientJWK = await recipient.getPublicJWK();
-        const senderJWK = await sender.getPublicJWK();
-
-        sender.fetchJWKS = async () => [recipientJWK];
-        recipient.fetchJWKS = async () => [senderJWK];
+        // JWKS exchange
+        await setupJWKSExchange(sender, recipient);
 
         // Generate valid message for baseline
         await sender.addRecipientData('recipient.com', { data: 'timing test' });

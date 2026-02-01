@@ -21,6 +21,7 @@ export interface SenderOptions {
   cacheTimeout?: number;
   maxRetries?: number;
   retryDelay?: number;
+  hideUserAgentVersion?: boolean;
 }
 
 export interface Recipients {
@@ -40,6 +41,7 @@ export default class TACSender {
   private readonly jwksCache: JWKSCache;
   private readonly maxRetries: number;
   private readonly retryDelay: number;
+  private readonly hideUserAgentVersion: boolean;
   private recipientData: Recipients = {};
 
   /**
@@ -62,11 +64,12 @@ export default class TACSender {
     this.jwksCache = new JWKSCache(options.cacheTimeout || 3600000);
     this.maxRetries = options.maxRetries || 3;
     this.retryDelay = options.retryDelay || 1000;
+    this.hideUserAgentVersion = options.hideUserAgentVersion || false;
   }
 
   /**
    * Set private key and automatically derive public key
-   * @param privateKey - Private key object or PEM string (RSA or EC)
+   * @param privateKey - Private key object or PEM string
    * @private
    */
   setPrivateKey(privateKey: KeyObject | jose.KeyLike | string): void {
@@ -85,10 +88,10 @@ export default class TACSender {
     }
 
     // Verify it's a supported key type
-    const supportedTypes = ["rsa", "rsa-pss", "ec"];
+    const supportedTypes = ["rsa", "rsa-pss"];
     if (!supportedTypes.includes(this.privateKey.asymmetricKeyType!)) {
       throw new TACCryptoError(
-        "TAC Protocol requires RSA or EC (P-256/384/521) keys",
+        "TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)",
         TACErrorCodes.UNSUPPORTED_KEY_TYPE
       );
     }
@@ -125,7 +128,7 @@ export default class TACSender {
       maxRetries: this.maxRetries,
       retryDelay: this.retryDelay,
       maxDelay: this.retryDelay * 30,
-      userAgent: getUserAgent(),
+      userAgent: getUserAgent({ hideVersion: this.hideUserAgentVersion }),
       forceRefresh,
     });
   }
@@ -208,12 +211,16 @@ export default class TACSender {
     const recipientJWEs: Array<{ recipient: string; jwe: string }> = [];
 
     for (const [domain, jwk] of Object.entries(recipientPublicKeys)) {
+      // Generate unique JWT ID to prevent replay attacks
+      const jti = crypto.randomUUID();
+
       // Create JWT payload with only this recipient's data
       const payload = {
         iss: this.domain,
         exp: now + this.ttl,
         iat: now,
         aud: domain, // Audience claim for this specific recipient
+        jti: jti, // Unique JWT ID to prevent replay attacks
         data: this.recipientData[domain], // Only this recipient's data
       };
 
@@ -231,6 +238,7 @@ export default class TACSender {
           .setAudience(domain)
           .setIssuedAt(now)
           .setExpirationTime(now + this.ttl)
+          .setJti(jti)
           .sign(this.privateKey); // Sign with sender's private key for authentication
       } catch (error) {
         throw new TACCryptoError(`JWT signing failed: ${(error as Error).message}`, TACErrorCodes.JWT_SIGNING_FAILED);

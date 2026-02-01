@@ -330,23 +330,19 @@ describe("Error Handling and Edge Cases", () => {
         assert.ok(result.errors.some((e: string) => e.includes("private key") || e.includes("decrypt")));
       });
 
-      it("should handle mismatched key algorithms", async () => {
-        // Generate EC key for recipient but claim it's RSA
-        const ecKeys = await jose.generateKeyPair("ES256");
-        const ecJWK = await jose.exportJWK(ecKeys.publicKey);
-
-        // Create a malformed JWK that claims to be RSA but has EC key data
+      it("should handle malformed JWK data", async () => {
+        // Create a malformed JWK that claims to be RSA but is missing required fields
         const malformedJWK = {
-          ...ecJWK,
-          kty: "RSA", // Claim it's RSA
+          kty: "RSA",
+          kid: "malformed-key",
           use: "enc",
-          alg: "RSA-OAEP-256", // RSA algorithm but EC key data
-          kid: "ec-recipient.com",
+          alg: "RSA-OAEP-256",
+          // Missing required RSA fields: n, e
         };
 
         (sender as any).fetchJWKS = async () => [malformedJWK];
 
-        await sender.addRecipientData("ec-recipient.com", { custom: { data: "test" } });
+        await sender.addRecipientData("malformed-recipient.com", { custom: { data: "test" } });
 
         try {
           await sender.generateTACMessage();

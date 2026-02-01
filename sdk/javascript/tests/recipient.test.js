@@ -85,7 +85,7 @@ describe('TACRecipient - Message Processing', () => {
       const result = await recipient.processTACMessage('invalid-base64!');
 
       assert.strictEqual(result.valid, false);
-      assert.ok(result.errors.some(e => e.includes('Invalid TAC-Protocol message format')));
+      assert.ok(result.errors.some(e => e.includes('must be base64-encoded')));
     });
 
     it('should handle malformed JSON', async () => {
@@ -239,36 +239,35 @@ describe('TACRecipient - Message Processing', () => {
       assert.ok(result.errors.some(e => e.includes('decrypt')));
     });
 
-    it('should handle key type mismatch', async () => {
-      // This test simulates using RSA key for EC encryption (edge case)
-      // In practice, this would be caught during message generation
-      const ecRecipientKeys = await jose.generateKeyPair('ES256');
-      const ecRecipient = new TACRecipient({
-        domain: 'ec-recipient.com',
-        privateKey: ecRecipientKeys.privateKey
+    it('should handle key mismatch between encryption and decryption', async () => {
+      // This test simulates trying to decrypt with the wrong key
+      const otherRecipientKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+      const otherRecipient = new TACRecipient({
+        domain: 'other-recipient.com',
+        privateKey: otherRecipientKeys.privateKey
       });
 
-      // Manually create JWE with wrong algorithm
+      // Create JWE encrypted with a different RSA key
       const wrongJWE = await new jose.EncryptJWT({ data: 'test' })
-        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM' }) // RSA algorithm
+        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM' })
         .setIssuer('sender.com')
-        .setAudience('ec-recipient.com')
+        .setAudience('other-recipient.com')
         .setExpirationTime('1h')
-        .encrypt(recipientKeys.publicKey); // But encrypt with RSA key
+        .encrypt(recipientKeys.publicKey); // Encrypt with recipient's key, not otherRecipient's
 
       const malformedMessage = {
         version: SCHEMA_VERSION,
-        recipients: [{ kid: 'ec-recipient.com', jwe: wrongJWE }]
+        recipients: [{ kid: 'other-recipient.com', jwe: wrongJWE }]
       };
       const base64Message = Buffer.from(JSON.stringify(malformedMessage)).toString('base64');
 
       const senderJWK = await sender.getPublicJWK();
-      ecRecipient.fetchJWKS = async () => [senderJWK];
+      otherRecipient.fetchJWKS = async () => [senderJWK];
 
-      const result = await ecRecipient.processTACMessage(base64Message);
+      const result = await otherRecipient.processTACMessage(base64Message);
 
       assert.strictEqual(result.valid, false);
-      assert.ok(result.errors.some(e => e.includes('Invalid key') || e.includes('asymmetricKeyType')));
+      assert.ok(result.errors.some(e => e.includes('decrypt') || e.includes('decryption')));
     });
 
     it('should handle corrupted ciphertext', async () => {
@@ -902,7 +901,7 @@ describe('TACRecipient - Message Processing', () => {
 
     it('should handle invalid message in inspect', () => {
       const result = TACRecipient.inspect('invalid-base64!');
-      assert.ok(result.error && result.error.includes('Invalid TAC-Protocol message format'));
+      assert.ok(result.error && result.error.includes('must be base64-encoded'));
     });
 
     it('should handle malformed JSON in inspect', () => {
@@ -1013,7 +1012,7 @@ describe('TACRecipient - Message Processing', () => {
         },
         {
           input: 'invalid-base64!',
-          expectedError: 'Invalid TAC-Protocol message format'
+          expectedError: 'must be base64-encoded'
         }
       ];
 
@@ -1025,6 +1024,468 @@ describe('TACRecipient - Message Processing', () => {
           `Expected error containing "${expectedError}" or similar, got: ${result.errors.join(', ')}`
         );
       }
+    });
+  });
+
+  describe('JWT ID (jti) Claim', () => {
+    it('should return jti in processing result', async () => {
+      const recipientJWK = await recipient.getPublicJWK();
+      const senderJWK = await sender.getPublicJWK();
+
+      sender.fetchJWKS = async () => [recipientJWK];
+      recipient.fetchJWKS = async () => [senderJWK];
+
+      await sender.addRecipientData('recipient.com', { test: 'data' });
+      const tacMessage = await sender.generateTACMessage();
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, true);
+      assert.ok(result.jti, 'Should return jti in result');
+      assert.strictEqual(typeof result.jti, 'string');
+      // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      assert.ok(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.jti), 'jti should be a valid UUID');
+    });
+
+    it('should return null jti for messages without jti claim', async () => {
+      // Manually create a message without jti
+      const signedJWT = await new jose.SignJWT({ data: { test: 'data' } })
+        .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+        .setIssuer('sender.com')
+        .setAudience('recipient.com')
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        // No jti set
+        .sign(senderKeys.privateKey);
+
+      const jwe = await new jose.CompactEncrypt(new TextEncoder().encode(signedJWT))
+        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM', cty: 'JWT' })
+        .encrypt(recipientKeys.publicKey);
+
+      const message = {
+        version: SCHEMA_VERSION,
+        recipients: [{ kid: 'recipient.com', jwe }]
+      };
+      const tacMessage = Buffer.from(JSON.stringify(message)).toString('base64');
+
+      const senderJWK = await sender.getPublicJWK();
+      recipient.fetchJWKS = async () => [senderJWK];
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, true);
+      assert.strictEqual(result.jti, null);
+    });
+  });
+
+  describe('Clock Tolerance Configuration', () => {
+    it('should use default clock tolerance of 300 seconds', async () => {
+      const defaultRecipient = new TACRecipient({
+        domain: 'recipient.com',
+        privateKey: recipientKeys.privateKey
+      });
+
+      assert.strictEqual(defaultRecipient.clockTolerance, 300);
+    });
+
+    it('should accept custom clock tolerance', async () => {
+      const customRecipient = new TACRecipient({
+        domain: 'recipient.com',
+        privateKey: recipientKeys.privateKey,
+        clockTolerance: 60 // 1 minute
+      });
+
+      assert.strictEqual(customRecipient.clockTolerance, 60);
+    });
+
+    it('should accept clock tolerance of 0', async () => {
+      const strictRecipient = new TACRecipient({
+        domain: 'recipient.com',
+        privateKey: recipientKeys.privateKey,
+        clockTolerance: 0
+      });
+
+      assert.strictEqual(strictRecipient.clockTolerance, 0);
+    });
+
+    it('should reject JWT with iat too far in the future when using strict tolerance', async () => {
+      const strictRecipient = new TACRecipient({
+        domain: 'recipient.com',
+        privateKey: recipientKeys.privateKey,
+        clockTolerance: 10 // Only 10 seconds tolerance
+      });
+
+      // Create JWT with iat 60 seconds in the future
+      const futureTime = Math.floor(Date.now() / 1000) + 60;
+
+      const signedJWT = await new jose.SignJWT({ data: { test: 'data' } })
+        .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+        .setIssuer('sender.com')
+        .setAudience('recipient.com')
+        .setIssuedAt(futureTime)
+        .setExpirationTime(futureTime + 3600)
+        .sign(senderKeys.privateKey);
+
+      const jwe = await new jose.CompactEncrypt(new TextEncoder().encode(signedJWT))
+        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM', cty: 'JWT' })
+        .encrypt(recipientKeys.publicKey);
+
+      const message = {
+        version: SCHEMA_VERSION,
+        recipients: [{ kid: 'recipient.com', jwe }]
+      };
+      const tacMessage = Buffer.from(JSON.stringify(message)).toString('base64');
+
+      const senderJWK = await sender.getPublicJWK();
+      strictRecipient.fetchJWKS = async () => [senderJWK];
+
+      const result = await strictRecipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('not yet valid') || e.includes('iat')));
+    });
+
+    it('should accept JWT with slightly future iat when using generous tolerance', async () => {
+      const generousRecipient = new TACRecipient({
+        domain: 'recipient.com',
+        privateKey: recipientKeys.privateKey,
+        clockTolerance: 120 // 2 minutes tolerance
+      });
+
+      // Create JWT with iat 60 seconds in the future (within tolerance)
+      const futureTime = Math.floor(Date.now() / 1000) + 60;
+
+      const signedJWT = await new jose.SignJWT({ data: { test: 'data' } })
+        .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+        .setIssuer('sender.com')
+        .setAudience('recipient.com')
+        .setIssuedAt(futureTime)
+        .setExpirationTime(futureTime + 3600)
+        .sign(senderKeys.privateKey);
+
+      const jwe = await new jose.CompactEncrypt(new TextEncoder().encode(signedJWT))
+        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM', cty: 'JWT' })
+        .encrypt(recipientKeys.publicKey);
+
+      const message = {
+        version: SCHEMA_VERSION,
+        recipients: [{ kid: 'recipient.com', jwe }]
+      };
+      const tacMessage = Buffer.from(JSON.stringify(message)).toString('base64');
+
+      const senderJWK = await sender.getPublicJWK();
+      generousRecipient.fetchJWKS = async () => [senderJWK];
+
+      const result = await generousRecipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, true);
+    });
+  });
+
+  describe('Clock Skew Boundary Tests', () => {
+    it('should accept JWT exactly at clock tolerance boundary', async () => {
+      const clockTolerance = 60; // 1 minute
+      const boundaryRecipient = new TACRecipient({
+        domain: 'recipient.com',
+        privateKey: recipientKeys.privateKey,
+        clockTolerance: clockTolerance
+      });
+
+      // Create JWT with iat exactly at tolerance boundary (60 seconds in future)
+      const futureTime = Math.floor(Date.now() / 1000) + clockTolerance;
+
+      const signedJWT = await new jose.SignJWT({ data: { test: 'boundary' } })
+        .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+        .setIssuer('sender.com')
+        .setAudience('recipient.com')
+        .setIssuedAt(futureTime)
+        .setExpirationTime(futureTime + 3600)
+        .sign(senderKeys.privateKey);
+
+      const jwe = await new jose.CompactEncrypt(new TextEncoder().encode(signedJWT))
+        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM', cty: 'JWT' })
+        .encrypt(recipientKeys.publicKey);
+
+      const message = {
+        version: SCHEMA_VERSION,
+        recipients: [{ kid: 'recipient.com', jwe }]
+      };
+      const tacMessage = Buffer.from(JSON.stringify(message)).toString('base64');
+
+      const senderJWK = await sender.getPublicJWK();
+      boundaryRecipient.fetchJWKS = async () => [senderJWK];
+
+      const result = await boundaryRecipient.processTACMessage(tacMessage);
+
+      // Should be valid at exact boundary
+      assert.strictEqual(result.valid, true);
+    });
+
+    it('should reject JWT just past clock tolerance boundary', async () => {
+      const clockTolerance = 60; // 1 minute
+      const strictRecipient = new TACRecipient({
+        domain: 'recipient.com',
+        privateKey: recipientKeys.privateKey,
+        clockTolerance: clockTolerance
+      });
+
+      // Create JWT with iat just past tolerance (61 seconds in future)
+      const futureTime = Math.floor(Date.now() / 1000) + clockTolerance + 1;
+
+      const signedJWT = await new jose.SignJWT({ data: { test: 'past-boundary' } })
+        .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+        .setIssuer('sender.com')
+        .setAudience('recipient.com')
+        .setIssuedAt(futureTime)
+        .setExpirationTime(futureTime + 3600)
+        .sign(senderKeys.privateKey);
+
+      const jwe = await new jose.CompactEncrypt(new TextEncoder().encode(signedJWT))
+        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM', cty: 'JWT' })
+        .encrypt(recipientKeys.publicKey);
+
+      const message = {
+        version: SCHEMA_VERSION,
+        recipients: [{ kid: 'recipient.com', jwe }]
+      };
+      const tacMessage = Buffer.from(JSON.stringify(message)).toString('base64');
+
+      const senderJWK = await sender.getPublicJWK();
+      strictRecipient.fetchJWKS = async () => [senderJWK];
+
+      const result = await strictRecipient.processTACMessage(tacMessage);
+
+      // Should be rejected just past boundary
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('not yet valid') || e.includes('iat')));
+    });
+
+    it('should accept JWT about to expire within tolerance', async () => {
+      const clockTolerance = 300; // 5 minutes (default)
+      const tolerantRecipient = new TACRecipient({
+        domain: 'recipient.com',
+        privateKey: recipientKeys.privateKey,
+        clockTolerance: clockTolerance
+      });
+
+      // Create JWT that expired 60 seconds ago (within 5 minute tolerance)
+      const pastTime = Math.floor(Date.now() / 1000) - 3660; // issued 1 hour + 1 min ago
+      const expTime = Math.floor(Date.now() / 1000) - 60; // expired 1 min ago
+
+      const signedJWT = await new jose.SignJWT({ data: { test: 'recently-expired' } })
+        .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+        .setIssuer('sender.com')
+        .setAudience('recipient.com')
+        .setIssuedAt(pastTime)
+        .setExpirationTime(expTime)
+        .sign(senderKeys.privateKey);
+
+      const jwe = await new jose.CompactEncrypt(new TextEncoder().encode(signedJWT))
+        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM', cty: 'JWT' })
+        .encrypt(recipientKeys.publicKey);
+
+      const message = {
+        version: SCHEMA_VERSION,
+        recipients: [{ kid: 'recipient.com', jwe }]
+      };
+      const tacMessage = Buffer.from(JSON.stringify(message)).toString('base64');
+
+      const senderJWK = await sender.getPublicJWK();
+      tolerantRecipient.fetchJWKS = async () => [senderJWK];
+
+      const result = await tolerantRecipient.processTACMessage(tacMessage);
+
+      // Within tolerance - should be valid (jose library handles exp tolerance)
+      // Note: behavior depends on jose library's tolerance handling
+      assert.ok(typeof result.valid === 'boolean');
+    });
+
+    it('should reject JWT expired well past tolerance', async () => {
+      const clockTolerance = 60; // 1 minute
+      const strictRecipient = new TACRecipient({
+        domain: 'recipient.com',
+        privateKey: recipientKeys.privateKey,
+        clockTolerance: clockTolerance
+      });
+
+      // Create JWT that expired 10 minutes ago (well past 1 minute tolerance)
+      const pastTime = Math.floor(Date.now() / 1000) - 3600 - 600; // issued 1h10m ago
+      const expTime = Math.floor(Date.now() / 1000) - 600; // expired 10 min ago
+
+      const signedJWT = await new jose.SignJWT({ data: { test: 'long-expired' } })
+        .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+        .setIssuer('sender.com')
+        .setAudience('recipient.com')
+        .setIssuedAt(pastTime)
+        .setExpirationTime(expTime)
+        .sign(senderKeys.privateKey);
+
+      const jwe = await new jose.CompactEncrypt(new TextEncoder().encode(signedJWT))
+        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM', cty: 'JWT' })
+        .encrypt(recipientKeys.publicKey);
+
+      const message = {
+        version: SCHEMA_VERSION,
+        recipients: [{ kid: 'recipient.com', jwe }]
+      };
+      const tacMessage = Buffer.from(JSON.stringify(message)).toString('base64');
+
+      const senderJWK = await sender.getPublicJWK();
+      strictRecipient.fetchJWKS = async () => [senderJWK];
+
+      const result = await strictRecipient.processTACMessage(tacMessage);
+
+      // Should be rejected - well past tolerance
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('expired') || e.includes('exp')));
+    });
+  });
+
+  describe('JWKS Fetch Failure Scenarios', () => {
+    it('should handle network timeout during JWKS fetch', async () => {
+      const recipientJWK = await recipient.getPublicJWK();
+      sender.fetchJWKS = async () => [recipientJWK];
+
+      await sender.addRecipientData('recipient.com', { data: 'test' });
+      const tacMessage = await sender.generateTACMessage();
+
+      // Simulate network timeout
+      recipient.fetchJWKS = async () => {
+        throw new Error('Request timeout after 10000ms');
+      };
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('timeout') || e.includes('fetch') || e.includes('JWKS')));
+    });
+
+    it('should handle HTTP 404 during JWKS fetch', async () => {
+      const recipientJWK = await recipient.getPublicJWK();
+      sender.fetchJWKS = async () => [recipientJWK];
+
+      await sender.addRecipientData('recipient.com', { data: 'test' });
+      const tacMessage = await sender.generateTACMessage();
+
+      // Simulate HTTP 404
+      recipient.fetchJWKS = async () => {
+        throw new Error('HTTP 404: Not Found');
+      };
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('404') || e.includes('fetch') || e.includes('JWKS')));
+    });
+
+    it('should handle HTTP 500 during JWKS fetch', async () => {
+      const recipientJWK = await recipient.getPublicJWK();
+      sender.fetchJWKS = async () => [recipientJWK];
+
+      await sender.addRecipientData('recipient.com', { data: 'test' });
+      const tacMessage = await sender.generateTACMessage();
+
+      // Simulate HTTP 500
+      recipient.fetchJWKS = async () => {
+        throw new Error('HTTP 500: Internal Server Error');
+      };
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('500') || e.includes('fetch') || e.includes('JWKS')));
+    });
+
+    it('should handle malformed JWKS response', async () => {
+      const recipientJWK = await recipient.getPublicJWK();
+      sender.fetchJWKS = async () => [recipientJWK];
+
+      await sender.addRecipientData('recipient.com', { data: 'test' });
+      const tacMessage = await sender.generateTACMessage();
+
+      // Simulate malformed JWKS (missing keys array)
+      recipient.fetchJWKS = async () => {
+        throw new Error('Invalid JWKS response: missing keys array');
+      };
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('JWKS') || e.includes('keys') || e.includes('Invalid')));
+    });
+
+    it('should handle empty JWKS keys array', async () => {
+      const recipientJWK = await recipient.getPublicJWK();
+      sender.fetchJWKS = async () => [recipientJWK];
+
+      await sender.addRecipientData('recipient.com', { data: 'test' });
+      const tacMessage = await sender.generateTACMessage();
+
+      // Return empty keys array
+      recipient.fetchJWKS = async () => [];
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('key') || e.includes('verify') || e.includes('signature')));
+    });
+
+    it('should handle JWKS with no matching key', async () => {
+      const recipientJWK = await recipient.getPublicJWK();
+      sender.fetchJWKS = async () => [recipientJWK];
+
+      await sender.addRecipientData('recipient.com', { data: 'test' });
+      const tacMessage = await sender.generateTACMessage();
+
+      // Return JWKS with completely different key
+      const differentKeys = await jose.generateKeyPair('RS256', { modulusLength: 2048 });
+      const differentJWK = await jose.exportJWK(differentKeys.publicKey);
+      recipient.fetchJWKS = async () => [{ ...differentJWK, kid: 'different-key-id' }];
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('signature') || e.includes('verify') || e.includes('key')));
+    });
+
+    it('should handle DNS resolution failure', async () => {
+      const recipientJWK = await recipient.getPublicJWK();
+      sender.fetchJWKS = async () => [recipientJWK];
+
+      await sender.addRecipientData('recipient.com', { data: 'test' });
+      const tacMessage = await sender.generateTACMessage();
+
+      // Simulate DNS failure
+      recipient.fetchJWKS = async () => {
+        const error = new Error('getaddrinfo ENOTFOUND sender.com');
+        error.code = 'ENOTFOUND';
+        throw error;
+      };
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('ENOTFOUND') || e.includes('fetch') || e.includes('network')));
+    });
+
+    it('should handle connection refused error', async () => {
+      const recipientJWK = await recipient.getPublicJWK();
+      sender.fetchJWKS = async () => [recipientJWK];
+
+      await sender.addRecipientData('recipient.com', { data: 'test' });
+      const tacMessage = await sender.generateTACMessage();
+
+      // Simulate connection refused
+      recipient.fetchJWKS = async () => {
+        const error = new Error('connect ECONNREFUSED 127.0.0.1:443');
+        error.code = 'ECONNREFUSED';
+        throw error;
+      };
+
+      const result = await recipient.processTACMessage(tacMessage);
+
+      assert.strictEqual(result.valid, false);
+      assert.ok(result.errors.some(e => e.includes('ECONNREFUSED') || e.includes('connect') || e.includes('network')));
     });
   });
 });

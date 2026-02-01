@@ -6,12 +6,13 @@ Handles TAC-Protocol message verification and decryption
 import base64
 import hashlib
 import json
+import re
 import time
 from typing import Any, Dict, List, Optional, Union
 
 import jose.jwt
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import rsa
 from jose import jwe
 from jose.exceptions import JWTError
 
@@ -52,16 +53,22 @@ class TACRecipient:
         cache_timeout: int = 3600000,
         max_retries: int = 3,
         retry_delay: int = 1000,
+        clock_tolerance: int = 300,
+        password: Optional[bytes] = None,
+        hide_user_agent_version: bool = False,
     ):
         """
         Initialize TACRecipient
 
         Args:
             domain: Domain of the recipient (required)
-            private_key: Private key for decryption - RSA or EC (required)
+            private_key: Private key for decryption (required)
             cache_timeout: JWKS cache timeout in ms (default: 3600000)
             max_retries: Max retry attempts for network requests (default: 3)
             retry_delay: Retry delay in ms (default: 1000)
+            clock_tolerance: Clock skew tolerance in seconds (default: 300 = 5 minutes)
+            password: Password for encrypted private keys (default: None)
+            hide_user_agent_version: If True, omit version details from User-Agent header (default: False)
         """
         if not domain:
             raise TACValidationError("domain is required in TACRecipient constructor", TACErrorCodes.DOMAIN_REQUIRED)
@@ -71,31 +78,36 @@ class TACRecipient:
             )
 
         self.domain = domain
+        self._password = password
         self.set_private_key(private_key)  # This sets both private and public keys
         self.jwks_cache = JWKSCache(cache_timeout)
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.clock_tolerance = clock_tolerance
+        self.hide_user_agent_version = hide_user_agent_version
 
-    def set_private_key(self, private_key: Union[str, Any]):
+    def set_private_key(self, private_key: Union[str, Any], password: Optional[bytes] = None):
         """
         Set private key and automatically derive public key
 
         Args:
-            private_key: Private key object or PEM string (RSA or EC)
+            private_key: Private key object or PEM string
+            password: Password for encrypted private keys (default: uses constructor password)
         """
+        key_password = password if password is not None else getattr(self, "_password", None)
         try:
             if isinstance(private_key, str):
-                self.private_key = serialization.load_pem_private_key(private_key.encode(), password=None)
+                self.private_key = serialization.load_pem_private_key(private_key.encode(), password=key_password)
             else:
                 self.private_key = private_key
         except Exception as error:
             raise TACCryptoError(f"Invalid key data: {str(error)}", TACErrorCodes.INVALID_KEY_DATA)
 
         # Verify it's a supported key type
-        supported_types = [rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey]
-        if not any(isinstance(self.private_key, t) for t in supported_types):
+        if not isinstance(self.private_key, rsa.RSAPrivateKey):
             raise TACCryptoError(
-                "TAC Protocol requires RSA or EC (P-256/384/521) keys", TACErrorCodes.UNSUPPORTED_KEY_TYPE
+                "TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)",
+                TACErrorCodes.UNSUPPORTED_KEY_TYPE
             )
 
         # Always derive public key from private key
@@ -137,7 +149,7 @@ class TACRecipient:
             max_retries=self.max_retries,
             retry_delay=self.retry_delay,
             max_delay=self.retry_delay * 30,
-            user_agent=get_user_agent(),
+            user_agent=get_user_agent(hide_version=self.hide_user_agent_version),
             force_refresh=force_refresh,
         )
 
@@ -155,6 +167,7 @@ class TACRecipient:
             "valid": False,
             "issuer": None,
             "expires": None,
+            "jti": None,  # JWT ID for replay detection
             "data": None,
             "recipients": [],
             "errors": [],
@@ -164,15 +177,24 @@ class TACRecipient:
             result["errors"].append("Missing TAC-Protocol message")
             return result
 
-        # Decode base64 message
+        # Decode base64 message (strictly required - raw JSON not accepted)
+        # Check if input looks like raw JSON (not base64 encoded)
+        trimmed = tac_message.strip()
+        if trimmed.startswith("{") or trimmed.startswith("["):
+            result["errors"].append("Invalid TAC-Protocol message: must be base64-encoded (raw JSON not accepted)")
+            return result
+
+        # Validate base64 format
+        base64_regex = re.compile(r"^[A-Za-z0-9+/]*={0,2}$")
+        if not base64_regex.match(tac_message):
+            result["errors"].append("Invalid TAC-Protocol message: must be base64-encoded")
+            return result
+
         try:
-            # Try to decode as base64 first
             decoded_message = base64.b64decode(tac_message).decode("utf-8")
-            # Validate it's valid JSON
-            json.loads(decoded_message)
         except Exception:
-            # If base64 decode fails, assume it's already JSON (backward compatibility)
-            decoded_message = tac_message
+            result["errors"].append("Invalid TAC-Protocol message: must be base64-encoded")
+            return result
 
         try:
             # Parse the multi-recipient message
@@ -262,15 +284,15 @@ class TACRecipient:
 
             # Additional manual validation for iat claim (not validated by jose by default)
             now = int(time.time())
-            clock_tolerance = 300  # 5 minutes in seconds
 
-            if payload.get("iat") and payload["iat"] > now + clock_tolerance:
+            if payload.get("iat") and payload["iat"] > now + self.clock_tolerance:
                 raise TACMessageError("JWT not yet valid (issued in the future)", TACErrorCodes.JWT_NOT_YET_VALID)
 
             # Extract data from verified payload
             result["valid"] = True
             result["issuer"] = payload.get("iss")
             result["expires"] = time.gmtime(payload.get("exp", 0)) if payload.get("exp") else None
+            result["jti"] = payload.get("jti")  # JWT ID for replay detection
 
             # Get data specific to this recipient
             result["data"] = payload.get("data")
@@ -292,13 +314,30 @@ class TACRecipient:
             Basic information about the message
         """
         try:
-            # Decode base64 message
-            try:
-                decoded_message = base64.b64decode(tac_message).decode("utf-8")
-                json.loads(decoded_message)
-            except Exception:
-                decoded_message = tac_message
+            import re
 
+            # Check if input looks like raw JSON (not base64 encoded)
+            trimmed = tac_message.strip()
+            if trimmed.startswith("{") or trimmed.startswith("["):
+                return {
+                    "error": "Invalid TAC-Protocol message: must be base64-encoded (raw JSON not accepted)",
+                    "version": None,
+                    "recipients": [],
+                    "expires": None,
+                }
+
+            # Validate base64 format
+            base64_regex = re.compile(r"^[A-Za-z0-9+/]*={0,2}$")
+            if not base64_regex.match(tac_message):
+                return {
+                    "error": "Invalid TAC-Protocol message: must be base64-encoded",
+                    "version": None,
+                    "recipients": [],
+                    "expires": None,
+                }
+
+            # Decode base64 message
+            decoded_message = base64.b64decode(tac_message).decode("utf-8")
             message = json.loads(decoded_message)
 
             return {

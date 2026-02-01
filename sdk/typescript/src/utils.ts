@@ -13,9 +13,6 @@ export interface JWK {
   alg?: string;
   n?: string;
   e?: string;
-  x?: string;
-  y?: string;
-  crv?: string;
   exp?: number;
   nbf?: number;
 }
@@ -30,11 +27,20 @@ export interface FetchOptions {
   forceRefresh?: boolean;
 }
 
+export interface UserAgentOptions {
+  hideVersion?: boolean;
+}
+
 /**
  * Get User-Agent string
+ * @param options - Options for User-Agent generation
+ * @param options.hideVersion - If true, only return "TAC-Protocol" without version details
  * @returns User-Agent string
  */
-export function getUserAgent(): string {
+export function getUserAgent(options: UserAgentOptions = {}): string {
+  if (options.hideVersion) {
+    return "TAC-Protocol";
+  }
   return `TAC-Protocol/${SCHEMA_VERSION} (${SDK_LANGUAGE}/${SDK_VERSION})`;
 }
 
@@ -262,7 +268,7 @@ function isKeyValid(key: JWK): boolean {
 /**
  * Get key type from crypto KeyObject
  * @param key - Key object
- * @returns Key type (RSA or EC)
+ * @returns Key type (RSA)
  */
 export function getKeyType(key: KeyObject): string {
   const keyType = key.asymmetricKeyType;
@@ -270,11 +276,11 @@ export function getKeyType(key: KeyObject): string {
   if (keyType === "rsa" || keyType === "rsa-pss") {
     return "RSA";
   }
-  if (keyType === "ec") {
-    return "EC";
-  }
 
-  throw new TACCryptoError(`Unsupported key type: ${keyType}`, TACErrorCodes.UNSUPPORTED_KEY_TYPE);
+  throw new TACCryptoError(
+    `Unsupported key type: ${keyType}. TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)`,
+    TACErrorCodes.UNSUPPORTED_KEY_TYPE
+  );
 }
 
 /**
@@ -285,69 +291,38 @@ export function getKeyType(key: KeyObject): string {
  */
 export function getAlgorithmForKey(key: KeyObject, use: string = "sig"): string {
   const keyType = getKeyType(key);
-  const keyDetail = key.asymmetricKeyDetails;
 
   if (keyType === "RSA") {
     return use === "sig" ? "RS256" : "RSA-OAEP-256";
-  } else if (keyType === "EC") {
-    const curve = (keyDetail as any)?.namedCurve;
-    if (use === "sig") {
-      switch (curve) {
-        case "P-256":
-        case "prime256v1":
-        case "secp256r1":
-          return "ES256";
-        case "P-384":
-        case "secp384r1":
-          return "ES384";
-        case "P-521":
-        case "secp521r1":
-          return "ES512";
-        default:
-          return "ES256";
-      }
-    } else {
-      return "ECDH-ES+A256KW";
-    }
   }
 
-  throw new TACCryptoError(`Unsupported key type: ${keyType}`, TACErrorCodes.UNSUPPORTED_KEY_TYPE);
+  throw new TACCryptoError(
+    `Unsupported key type: ${keyType}. TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)`,
+    TACErrorCodes.UNSUPPORTED_KEY_TYPE
+  );
 }
 
 /**
- * Find suitable encryption key from JWKS (supports RSA and EC bidirectional keys)
+ * Find suitable encryption key from JWKS
  * @param keys - Array of JWK objects
  * @returns Encryption JWK or undefined
  */
 export function findEncryptionKey(keys: JWK[]): JWK | undefined {
-  // Filter valid keys (supported types for bidirectional use)
-  const validKeys = keys.filter((k) => isKeyValid(k) && ["RSA", "EC"].includes(k.kty));
+  // Filter valid RSA keys
+  const validKeys = keys.filter((k) => isKeyValid(k) && k.kty === "RSA");
 
-  // Prefer RSA keys for compatibility, then EC
-  const keyTypes = ["RSA", "EC"];
+  for (const key of validKeys) {
+    // Skip keys that are explicitly marked as signature-only
+    if (key.use === "sig") {
+      continue;
+    }
 
-  for (const keyType of keyTypes) {
-    const typeKeys = validKeys.filter((k) => k.kty === keyType);
-
-    for (const key of typeKeys) {
-      // Skip keys that are explicitly marked as signature-only
-      if (key.use === "sig") {
-        continue;
-      }
-
-      // Accept keys with no 'use' field (dual-purpose) or 'enc' use
-      if (!key.use || key.use === "enc") {
-        // Return key with appropriate encryption algorithm
-        const encryptionKey = { ...key };
-
-        if (key.kty === "RSA") {
-          encryptionKey.alg = "RSA-OAEP-256";
-        } else if (key.kty === "EC") {
-          encryptionKey.alg = "ECDH-ES+A256KW";
-        }
-
-        return encryptionKey;
-      }
+    // Accept keys with no 'use' field (dual-purpose) or 'enc' use
+    if (!key.use || key.use === "enc") {
+      // Return key with appropriate encryption algorithm
+      const encryptionKey = { ...key };
+      encryptionKey.alg = "RSA-OAEP-256";
+      return encryptionKey;
     }
   }
 
@@ -355,14 +330,14 @@ export function findEncryptionKey(keys: JWK[]): JWK | undefined {
 }
 
 /**
- * Find suitable signing key from JWKS (supports RSA and EC)
+ * Find suitable signing key from JWKS
  * @param keys - Array of JWK objects
  * @param keyId - Optional key ID to match
  * @returns Signing JWK or undefined
  */
 export function findSigningKey(keys: JWK[], keyId?: string): JWK | undefined {
-  // Filter valid keys (supported types)
-  const validKeys = keys.filter((k) => isKeyValid(k) && ["RSA", "EC"].includes(k.kty));
+  // Filter valid RSA keys
+  const validKeys = keys.filter((k) => isKeyValid(k) && k.kty === "RSA");
 
   if (keyId) {
     const key = validKeys.find((k) => k.kid === keyId);
@@ -371,18 +346,13 @@ export function findSigningKey(keys: JWK[], keyId?: string): JWK | undefined {
     }
   }
 
-  // Look for appropriate signing key by type
-  const signingAlgs: Record<string, string[]> = {
-    RSA: ["RS256", "RS384", "RS512"],
-    EC: ["ES256", "ES384", "ES512"],
-  };
+  // Look for appropriate RSA signing key
+  const signingAlgs = ["RS256", "RS384", "RS512"];
 
-  for (const [kty, algs] of Object.entries(signingAlgs)) {
-    for (const alg of algs) {
-      const key = validKeys.find((k) => k.kty === kty && (k.use === "sig" || !k.use) && (k.alg === alg || !k.alg));
-      if (key) {
-        return key;
-      }
+  for (const alg of signingAlgs) {
+    const key = validKeys.find((k) => (k.use === "sig" || !k.use) && (k.alg === alg || !k.alg));
+    if (key) {
+      return key;
     }
   }
 
@@ -412,6 +382,14 @@ export async function publicKeyToJWK(publicKey: KeyObject | jose.KeyLike, keyId?
     );
   }
 
+  // Verify key type is RSA
+  if (jwk.kty !== "RSA") {
+    throw new TACCryptoError(
+      `Unsupported key type: ${jwk.kty}. TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)`,
+      TACErrorCodes.UNSUPPORTED_KEY_TYPE
+    );
+  }
+
   // Generate key ID if not provided
   if (!keyId) {
     if ('export' in publicKey) {
@@ -434,33 +412,8 @@ export async function publicKeyToJWK(publicKey: KeyObject | jose.KeyLike, keyId?
   const result: JWK = {
     ...jwk,
     kid: keyId,
+    alg: "RS256", // Default for RSA
   };
-
-  // Add default algorithm based on key type from JWK
-  if (jwk.kty === "RSA") {
-    result.alg = "RS256"; // Default for RSA
-  } else if (jwk.kty === "EC") {
-    // Use curve from JWK, which works for both KeyObject and jose.KeyLike
-    const curve = jwk.crv;
-
-    switch (curve) {
-      case "P-256":
-      case "prime256v1":
-      case "secp256r1":
-        result.alg = "ES256";
-        break;
-      case "P-384":
-      case "secp384r1":
-        result.alg = "ES384";
-        break;
-      case "P-521":
-      case "secp521r1":
-        result.alg = "ES512";
-        break;
-      default:
-        result.alg = "ES256";
-    }
-  }
 
   return result;
 }

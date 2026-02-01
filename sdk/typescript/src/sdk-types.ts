@@ -127,22 +127,16 @@ export interface CachedJWKS {
  */
 export interface JWK {
   /** Key type */
-  kty: "RSA" | "EC" | "OKP";
+  kty: string;
   /** Key ID */
   kid?: string;
   /** Algorithm */
   alg?: string;
   /** Key use (sig, enc) */
   use?: "sig" | "enc";
-  /** Curve (for EC and OKP keys) */
-  crv?: string;
-  /** X coordinate (for EC and OKP keys) */
-  x?: string;
-  /** Y coordinate (for EC keys) */
-  y?: string;
-  /** RSA modulus (for RSA keys) */
+  /** RSA modulus */
   n?: string;
-  /** RSA exponent (for RSA keys) */
+  /** RSA exponent */
   e?: string;
   /** Not before timestamp */
   nbf?: number;

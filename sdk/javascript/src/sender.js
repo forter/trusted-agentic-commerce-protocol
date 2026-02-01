@@ -20,11 +20,12 @@ class TACSender {
   /**
    * @param {Object} options - Configuration options
    * @param {string} options.domain - Domain of the agent (required, used as 'iss' in JWT)
-   * @param {crypto.KeyObject|string} options.privateKey - Private key for signing - RSA or EC (required)
+   * @param {crypto.KeyObject|string} options.privateKey - Private key for signing (required)
    * @param {number} options.ttl - JWT expiry time in seconds (default: 3600)
    * @param {number} options.cacheTimeout - JWKS cache timeout in ms (default: 3600000)
    * @param {number} options.maxRetries - Max retry attempts for network requests (default: 3)
    * @param {number} options.retryDelay - Retry delay in ms (default: 1000)
+   * @param {boolean} options.hideUserAgentVersion - If true, omit version details from User-Agent header (default: false)
    */
   constructor(options = {}) {
     if (!options.domain) {
@@ -43,12 +44,13 @@ class TACSender {
     this.jwksCache = new JWKSCache(options.cacheTimeout || 3600000);
     this.maxRetries = options.maxRetries || 3;
     this.retryDelay = options.retryDelay || 1000;
+    this.hideUserAgentVersion = options.hideUserAgentVersion || false;
     this.recipientData = {}; // Store recipient data for later encryption
   }
 
   /**
    * Set private key and automatically derive public key
-   * @param {crypto.KeyObject|string} privateKey - Private key object or PEM string (RSA or EC)
+   * @param {crypto.KeyObject|string} privateKey - Private key object or PEM string
    * @private
    */
   setPrivateKey(privateKey) {
@@ -63,10 +65,10 @@ class TACSender {
     }
 
     // Verify it's a supported key type
-    const supportedTypes = ['rsa', 'rsa-pss', 'ec'];
+    const supportedTypes = ['rsa', 'rsa-pss'];
     if (!supportedTypes.includes(this.privateKey.asymmetricKeyType)) {
       throw new TACCryptoError(
-        'TAC Protocol requires RSA or EC (P-256/384/521) keys',
+        'TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)',
         TACErrorCodes.UNSUPPORTED_KEY_TYPE
       );
     }
@@ -104,7 +106,7 @@ class TACSender {
       maxRetries: this.maxRetries,
       retryDelay: this.retryDelay,
       maxDelay: this.retryDelay * 30,
-      userAgent: getUserAgent(),
+      userAgent: getUserAgent({ hideVersion: this.hideUserAgentVersion }),
       forceRefresh
     });
   }
@@ -187,12 +189,16 @@ class TACSender {
     const recipientJWEs = [];
 
     for (const [domain, jwk] of Object.entries(recipientPublicKeys)) {
+      // Generate unique JWT ID to prevent replay attacks
+      const jti = crypto.randomUUID();
+
       // Create JWT payload with only this recipient's data
       const payload = {
         iss: this.domain,
         exp: now + this.ttl,
         iat: now,
         aud: domain, // Audience claim for this specific recipient
+        jti: jti, // Unique JWT ID to prevent replay attacks
         data: this.recipientData[domain] // Only this recipient's data
       };
 
@@ -206,6 +212,7 @@ class TACSender {
           .setAudience(domain)
           .setIssuedAt(now)
           .setExpirationTime(now + this.ttl)
+          .setJti(jti)
           .sign(this.privateKey); // Sign with sender's private key for authentication
       } catch (error) {
         throw new TACCryptoError(`JWT signing failed: ${error.message}`, TACErrorCodes.JWT_SIGNING_FAILED);

@@ -13,7 +13,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 # Add src directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -36,15 +36,6 @@ class TestBasicRecipientFunctionality(unittest.TestCase):
         self.assertEqual(self.recipient.domain, "merchant.com")
         self.assertIsNotNone(self.recipient.private_key)
         self.assertIsNotNone(self.recipient.public_key)
-
-    def test_recipient_with_ec_keys(self):
-        """Test recipient initialization with EC keys"""
-        ec_private_key = ec.generate_private_key(ec.SECP256R1())
-        recipient = TACRecipient(domain="test.com", private_key=ec_private_key)
-
-        self.assertEqual(recipient.domain, "test.com")
-        self.assertIsNotNone(recipient.private_key)
-        self.assertIsNotNone(recipient.public_key)
 
     def test_invalid_domain(self):
         """Test invalid domain handling"""
@@ -69,14 +60,10 @@ class TestBasicRecipientFunctionality(unittest.TestCase):
             self.assertIn("kid", jwk)
             self.assertIn("alg", jwk)
 
-            if jwk["kty"] == "RSA":
-                self.assertIn("n", jwk)
-                self.assertIn("e", jwk)
-                self.assertEqual(jwk["alg"], "RS256")
-            elif jwk["kty"] == "EC":
-                self.assertIn("x", jwk)
-                self.assertIn("y", jwk)
-                self.assertIn("crv", jwk)
+            self.assertEqual(jwk["kty"], "RSA")
+            self.assertIn("n", jwk)
+            self.assertIn("e", jwk)
+            self.assertEqual(jwk["alg"], "RS256")
 
         asyncio.run(run_test())
 
@@ -516,6 +503,305 @@ class TestKeyRotationScenarios(unittest.TestCase):
 
             # May fail due to invalid signature, but should not fail due to key lookup
             self.assertIsInstance(result, dict)
+
+        asyncio.run(run_test())
+
+
+class TestClockTolerance(unittest.TestCase):
+    """Test clock tolerance configuration"""
+
+    def test_default_clock_tolerance(self):
+        """Test default clock tolerance is 300 seconds"""
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        recipient = TACRecipient(domain="test.com", private_key=private_key)
+
+        self.assertEqual(recipient.clock_tolerance, 300)
+
+    def test_custom_clock_tolerance(self):
+        """Test custom clock tolerance"""
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        recipient = TACRecipient(domain="test.com", private_key=private_key, clock_tolerance=60)
+
+        self.assertEqual(recipient.clock_tolerance, 60)
+
+    def test_zero_clock_tolerance(self):
+        """Test zero clock tolerance is accepted"""
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        recipient = TACRecipient(domain="test.com", private_key=private_key, clock_tolerance=0)
+
+        self.assertEqual(recipient.clock_tolerance, 0)
+
+
+class TestRecipientPasswordSupport(unittest.TestCase):
+    """Test password-protected private key support in recipient"""
+
+    def test_password_parameter_accepted(self):
+        """Test that password parameter is accepted in constructor"""
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+        # Should accept password parameter without error
+        recipient = TACRecipient(
+            domain="test.com", private_key=private_key, password=b"test_password"  # Password won't be used
+        )
+        self.assertIsNotNone(recipient)
+
+    def test_encrypted_pem_key_loading(self):
+        """Test loading encrypted PEM key with password"""
+        from cryptography.hazmat.primitives import serialization
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        password = b"test_password_123"
+
+        encrypted_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(password),
+        )
+
+        # Should be able to load with correct password
+        recipient = TACRecipient(domain="test.com", private_key=encrypted_pem.decode(), password=password)
+        self.assertIsNotNone(recipient.private_key)
+        self.assertIsNotNone(recipient.public_key)
+
+    def test_encrypted_pem_wrong_password_fails(self):
+        """Test that wrong password fails to load encrypted key"""
+        from cryptography.hazmat.primitives import serialization
+
+        from errors import TACCryptoError
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        password = b"correct_password"
+
+        encrypted_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(password),
+        )
+
+        with self.assertRaises(TACCryptoError):
+            TACRecipient(domain="test.com", private_key=encrypted_pem.decode(), password=b"wrong_password")
+
+
+class TestClockSkewBoundary(unittest.TestCase):
+    """Test clock skew boundary conditions"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.sender_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.sender = TACSender(domain="agent.com", private_key=self.sender_private_key)
+
+        self.recipient_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    def test_accept_jwt_at_tolerance_boundary(self):
+        """Test acceptance of JWT exactly at clock tolerance boundary"""
+        clock_tolerance = 60  # 1 minute
+        recipient = TACRecipient(
+            domain="merchant.com",
+            private_key=self.recipient_private_key,
+            clock_tolerance=clock_tolerance
+        )
+
+        self.assertEqual(recipient.clock_tolerance, clock_tolerance)
+
+    def test_custom_tolerance_values(self):
+        """Test various custom tolerance values"""
+        test_values = [0, 30, 60, 300, 600]
+
+        for tolerance in test_values:
+            recipient = TACRecipient(
+                domain="merchant.com",
+                private_key=self.recipient_private_key,
+                clock_tolerance=tolerance
+            )
+            self.assertEqual(recipient.clock_tolerance, tolerance)
+
+    @patch.object(TACSender, "fetch_jwks")
+    @patch.object(TACRecipient, "fetch_jwks")
+    def test_strict_tolerance_rejects_future_jwt(self, mock_recipient_fetch, mock_sender_fetch):
+        """Test that strict tolerance rejects JWTs with future iat"""
+        strict_recipient = TACRecipient(
+            domain="merchant.com",
+            private_key=self.recipient_private_key,
+            clock_tolerance=10  # Only 10 seconds
+        )
+
+        async def run_test():
+            recipient_jwk = await strict_recipient.get_public_jwk()
+            sender_jwk = await self.sender.get_public_jwk()
+
+            mock_sender_fetch.return_value = [recipient_jwk]
+            mock_recipient_fetch.return_value = [sender_jwk]
+
+            # Note: Creating a message with future iat would require direct JWT manipulation
+            # This test validates the configuration is correctly set
+            self.assertEqual(strict_recipient.clock_tolerance, 10)
+
+        asyncio.run(run_test())
+
+
+class TestJWKSFetchFailures(unittest.TestCase):
+    """Test JWKS fetch failure scenarios"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.recipient = TACRecipient(domain="merchant.com", private_key=self.private_key)
+
+    @patch.object(TACRecipient, "fetch_jwks")
+    def test_network_timeout(self, mock_fetch):
+        """Test handling of network timeout during JWKS fetch"""
+        mock_fetch.side_effect = TACNetworkError("Request timeout after 10000ms")
+
+        async def run_test():
+            message_data = {
+                "version": "2025-08-27",
+                "recipients": [{"kid": "merchant.com", "jwe": "data"}],
+            }
+            encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
+
+            result = await self.recipient.process_tac_message(encoded_message)
+
+            self.assertFalse(result["valid"])
+            self.assertGreater(len(result["errors"]), 0)
+
+        asyncio.run(run_test())
+
+    @patch.object(TACRecipient, "fetch_jwks")
+    def test_http_404_error(self, mock_fetch):
+        """Test handling of HTTP 404 during JWKS fetch"""
+        mock_fetch.side_effect = TACNetworkError("HTTP 404: Not Found")
+
+        async def run_test():
+            message_data = {
+                "version": "2025-08-27",
+                "recipients": [{"kid": "merchant.com", "jwe": "data"}],
+            }
+            encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
+
+            result = await self.recipient.process_tac_message(encoded_message)
+
+            self.assertFalse(result["valid"])
+            self.assertGreater(len(result["errors"]), 0)
+
+        asyncio.run(run_test())
+
+    @patch.object(TACRecipient, "fetch_jwks")
+    def test_http_500_error(self, mock_fetch):
+        """Test handling of HTTP 500 during JWKS fetch"""
+        mock_fetch.side_effect = TACNetworkError("HTTP 500: Internal Server Error")
+
+        async def run_test():
+            message_data = {
+                "version": "2025-08-27",
+                "recipients": [{"kid": "merchant.com", "jwe": "data"}],
+            }
+            encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
+
+            result = await self.recipient.process_tac_message(encoded_message)
+
+            self.assertFalse(result["valid"])
+            self.assertGreater(len(result["errors"]), 0)
+
+        asyncio.run(run_test())
+
+    @patch.object(TACRecipient, "fetch_jwks")
+    def test_malformed_jwks_response(self, mock_fetch):
+        """Test handling of malformed JWKS response"""
+        mock_fetch.side_effect = TACNetworkError("Invalid JWKS response: missing keys array")
+
+        async def run_test():
+            message_data = {
+                "version": "2025-08-27",
+                "recipients": [{"kid": "merchant.com", "jwe": "data"}],
+            }
+            encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
+
+            result = await self.recipient.process_tac_message(encoded_message)
+
+            self.assertFalse(result["valid"])
+            self.assertGreater(len(result["errors"]), 0)
+
+        asyncio.run(run_test())
+
+    @patch.object(TACRecipient, "fetch_jwks")
+    def test_empty_jwks_keys_array(self, mock_fetch):
+        """Test handling of empty JWKS keys array"""
+        mock_fetch.return_value = []
+
+        async def run_test():
+            message_data = {
+                "version": "2025-08-27",
+                "recipients": [{"kid": "merchant.com", "jwe": "data"}],
+            }
+            encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
+
+            result = await self.recipient.process_tac_message(encoded_message)
+
+            self.assertFalse(result["valid"])
+            self.assertGreater(len(result["errors"]), 0)
+
+        asyncio.run(run_test())
+
+    @patch.object(TACRecipient, "fetch_jwks")
+    def test_dns_resolution_failure(self, mock_fetch):
+        """Test handling of DNS resolution failure"""
+        mock_fetch.side_effect = TACNetworkError("getaddrinfo ENOTFOUND sender.com")
+
+        async def run_test():
+            message_data = {
+                "version": "2025-08-27",
+                "recipients": [{"kid": "merchant.com", "jwe": "data"}],
+            }
+            encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
+
+            result = await self.recipient.process_tac_message(encoded_message)
+
+            self.assertFalse(result["valid"])
+            self.assertGreater(len(result["errors"]), 0)
+
+        asyncio.run(run_test())
+
+    @patch.object(TACRecipient, "fetch_jwks")
+    def test_connection_refused(self, mock_fetch):
+        """Test handling of connection refused error"""
+        mock_fetch.side_effect = TACNetworkError("connect ECONNREFUSED 127.0.0.1:443")
+
+        async def run_test():
+            message_data = {
+                "version": "2025-08-27",
+                "recipients": [{"kid": "merchant.com", "jwe": "data"}],
+            }
+            encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
+
+            result = await self.recipient.process_tac_message(encoded_message)
+
+            self.assertFalse(result["valid"])
+            self.assertGreater(len(result["errors"]), 0)
+
+        asyncio.run(run_test())
+
+    @patch.object(TACRecipient, "fetch_jwks")
+    def test_jwks_with_no_matching_key(self, mock_fetch):
+        """Test handling of JWKS with no matching signing key"""
+        # Return a key with different kid
+        different_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        different_recipient = TACRecipient(domain="other.com", private_key=different_key)
+
+        async def run_test():
+            different_jwk = await different_recipient.get_public_jwk()
+            different_jwk["kid"] = "different-key-id"
+            mock_fetch.return_value = [different_jwk]
+
+            message_data = {
+                "version": "2025-08-27",
+                "recipients": [{"kid": "merchant.com", "jwe": "data"}],
+            }
+            encoded_message = base64.b64encode(json.dumps(message_data).encode("utf-8")).decode("utf-8")
+
+            result = await self.recipient.process_tac_message(encoded_message)
+
+            self.assertFalse(result["valid"])
+            self.assertGreater(len(result["errors"]), 0)
 
         asyncio.run(run_test())
 

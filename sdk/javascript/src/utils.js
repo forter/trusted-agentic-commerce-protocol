@@ -6,9 +6,14 @@ import { TACNetworkError, TACCryptoError, TACErrorCodes } from './errors.js';
 
 /**
  * Get User-Agent string
+ * @param {Object} options - Options for User-Agent generation
+ * @param {boolean} options.hideVersion - If true, only return "TAC-Protocol" without version details
  * @returns User-Agent string
  */
-export function getUserAgent() {
+export function getUserAgent(options = {}) {
+  if (options.hideVersion) {
+    return 'TAC-Protocol';
+  }
   return `TAC-Protocol/${SCHEMA_VERSION} (${SDK_LANGUAGE}/${SDK_VERSION})`;
 }
 
@@ -237,7 +242,7 @@ function isKeyValid(key) {
 /**
  * Get key type from crypto KeyObject
  * @param {crypto.KeyObject} key - Key object
- * @returns {string} Key type (RSA or EC)
+ * @returns {string} Key type (RSA)
  */
 export function getKeyType(key) {
   const keyType = key.asymmetricKeyType;
@@ -245,11 +250,11 @@ export function getKeyType(key) {
   if (keyType === 'rsa' || keyType === 'rsa-pss') {
     return 'RSA';
   }
-  if (keyType === 'ec') {
-    return 'EC';
-  }
 
-  throw new TACCryptoError(`Unsupported key type: ${keyType}`, TACErrorCodes.UNSUPPORTED_KEY_TYPE);
+  throw new TACCryptoError(
+    `Unsupported key type: ${keyType}. TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)`,
+    TACErrorCodes.UNSUPPORTED_KEY_TYPE
+  );
 }
 
 /**
@@ -260,69 +265,38 @@ export function getKeyType(key) {
  */
 export function getAlgorithmForKey(key, use = 'sig') {
   const keyType = getKeyType(key);
-  const keyDetail = key.asymmetricKeyDetails;
 
   if (keyType === 'RSA') {
     return use === 'sig' ? 'RS256' : 'RSA-OAEP-256';
-  } else if (keyType === 'EC') {
-    const curve = keyDetail?.namedCurve;
-    if (use === 'sig') {
-      switch (curve) {
-        case 'P-256':
-        case 'prime256v1':
-        case 'secp256r1':
-          return 'ES256';
-        case 'P-384':
-        case 'secp384r1':
-          return 'ES384';
-        case 'P-521':
-        case 'secp521r1':
-          return 'ES512';
-        default:
-          return 'ES256';
-      }
-    } else {
-      return 'ECDH-ES+A256KW';
-    }
   }
 
-  throw new TACCryptoError(`Unsupported key type: ${keyType}`, TACErrorCodes.UNSUPPORTED_KEY_TYPE);
+  throw new TACCryptoError(
+    `Unsupported key type: ${keyType}. TAC Protocol requires RSA keys (minimum 2048-bit, 3072-bit recommended)`,
+    TACErrorCodes.UNSUPPORTED_KEY_TYPE
+  );
 }
 
 /**
- * Find suitable encryption key from JWKS (supports RSA and EC bidirectional keys)
+ * Find suitable encryption key from JWKS
  * @param {Array} keys - Array of JWK objects
  * @returns {Object|undefined} Encryption JWK or undefined
  */
 export function findEncryptionKey(keys) {
-  // Filter valid keys (supported types for bidirectional use)
-  const validKeys = keys.filter(k => isKeyValid(k) && ['RSA', 'EC'].includes(k.kty));
+  // Filter valid RSA keys
+  const validKeys = keys.filter(k => isKeyValid(k) && k.kty === 'RSA');
 
-  // Prefer RSA keys for compatibility, then EC
-  const keyTypes = ['RSA', 'EC'];
+  for (const key of validKeys) {
+    // Skip keys that are explicitly marked as signature-only
+    if (key.use === 'sig') {
+      continue;
+    }
 
-  for (const keyType of keyTypes) {
-    const typeKeys = validKeys.filter(k => k.kty === keyType);
-
-    for (const key of typeKeys) {
-      // Skip keys that are explicitly marked as signature-only
-      if (key.use === 'sig') {
-        continue;
-      }
-
-      // Accept keys with no 'use' field (dual-purpose) or 'enc' use
-      if (!key.use || key.use === 'enc') {
-        // Return key with appropriate encryption algorithm
-        const encryptionKey = { ...key };
-
-        if (key.kty === 'RSA') {
-          encryptionKey.alg = 'RSA-OAEP-256';
-        } else if (key.kty === 'EC') {
-          encryptionKey.alg = 'ECDH-ES+A256KW';
-        }
-
-        return encryptionKey;
-      }
+    // Accept keys with no 'use' field (dual-purpose) or 'enc' use
+    if (!key.use || key.use === 'enc') {
+      // Return key with appropriate encryption algorithm
+      const encryptionKey = { ...key };
+      encryptionKey.alg = 'RSA-OAEP-256';
+      return encryptionKey;
     }
   }
 
@@ -330,14 +304,14 @@ export function findEncryptionKey(keys) {
 }
 
 /**
- * Find suitable signing key from JWKS (supports RSA and EC)
+ * Find suitable signing key from JWKS
  * @param {Array} keys - Array of JWK objects
  * @param {string} keyId - Optional key ID to match
  * @returns {Object|undefined} Signing JWK or undefined
  */
 export function findSigningKey(keys, keyId = null) {
-  // Filter valid keys (supported types)
-  const validKeys = keys.filter(k => isKeyValid(k) && ['RSA', 'EC'].includes(k.kty));
+  // Filter valid RSA keys
+  const validKeys = keys.filter(k => isKeyValid(k) && k.kty === 'RSA');
 
   if (keyId) {
     const key = validKeys.find(k => k.kid === keyId);
@@ -346,18 +320,13 @@ export function findSigningKey(keys, keyId = null) {
     }
   }
 
-  // Look for appropriate signing key by type
-  const signingAlgs = {
-    RSA: ['RS256', 'RS384', 'RS512'],
-    EC: ['ES256', 'ES384', 'ES512']
-  };
+  // Look for appropriate RSA signing key
+  const signingAlgs = ['RS256', 'RS384', 'RS512'];
 
-  for (const [kty, algs] of Object.entries(signingAlgs)) {
-    for (const alg of algs) {
-      const key = validKeys.find(k => k.kty === kty && (k.use === 'sig' || !k.use) && (k.alg === alg || !k.alg));
-      if (key) {
-        return key;
-      }
+  for (const alg of signingAlgs) {
+    const key = validKeys.find(k => (k.use === 'sig' || !k.use) && (k.alg === alg || !k.alg));
+    if (key) {
+      return key;
     }
   }
 
@@ -375,6 +344,9 @@ export async function publicKeyToJWK(publicKey, keyId = null) {
   if (!publicKey) {
     throw new TACCryptoError('No public key provided', TACErrorCodes.NO_PUBLIC_KEY);
   }
+
+  // Verify key type is RSA
+  const keyType = getKeyType(publicKey);
 
   const jose = await import('jose');
 
@@ -397,40 +369,13 @@ export async function publicKeyToJWK(publicKey, keyId = null) {
     keyId = keyHash.toString('base64url');
   }
 
-  const keyType = getKeyType(publicKey);
-
   // Return JWK without specifying 'use' for dual-purpose keys
   // Algorithm selection depends on context (signing vs encryption)
   const result = {
     ...jwk,
-    kid: keyId
+    kid: keyId,
+    alg: 'RS256' // Default for RSA
   };
-
-  // Add default algorithm based on key type for compatibility
-  if (keyType === 'RSA') {
-    result.alg = 'RS256'; // Default for RSA
-  } else if (keyType === 'EC') {
-    const keyDetail = publicKey.asymmetricKeyDetails;
-    const curve = keyDetail?.namedCurve;
-
-    switch (curve) {
-      case 'P-256':
-      case 'prime256v1':
-      case 'secp256r1':
-        result.alg = 'ES256';
-        break;
-      case 'P-384':
-      case 'secp384r1':
-        result.alg = 'ES384';
-        break;
-      case 'P-521':
-      case 'secp521r1':
-        result.alg = 'ES512';
-        break;
-      default:
-        result.alg = 'ES256';
-    }
-  }
 
   return result;
 }

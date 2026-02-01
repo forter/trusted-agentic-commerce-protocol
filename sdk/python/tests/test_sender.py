@@ -13,7 +13,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 # Add src directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -36,15 +36,6 @@ class TestBasicSenderFunctionality(unittest.TestCase):
         self.assertEqual(self.sender.domain, "agent.com")
         self.assertIsNotNone(self.sender.private_key)
         self.assertIsNotNone(self.sender.public_key)
-
-    def test_sender_with_ec_keys(self):
-        """Test sender initialization with EC keys"""
-        ec_private_key = ec.generate_private_key(ec.SECP256R1())
-        sender = TACSender(domain="test.com", private_key=ec_private_key)
-
-        self.assertEqual(sender.domain, "test.com")
-        self.assertIsNotNone(sender.private_key)
-        self.assertIsNotNone(sender.public_key)
 
     def test_invalid_domain(self):
         """Test invalid domain handling"""
@@ -79,14 +70,10 @@ class TestBasicSenderFunctionality(unittest.TestCase):
             self.assertIn("kid", jwk)
             self.assertIn("alg", jwk)
 
-            if jwk["kty"] == "RSA":
-                self.assertIn("n", jwk)
-                self.assertIn("e", jwk)
-                self.assertEqual(jwk["alg"], "RS256")
-            elif jwk["kty"] == "EC":
-                self.assertIn("x", jwk)
-                self.assertIn("y", jwk)
-                self.assertIn("crv", jwk)
+            self.assertEqual(jwk["kty"], "RSA")
+            self.assertIn("n", jwk)
+            self.assertIn("e", jwk)
+            self.assertEqual(jwk["alg"], "RS256")
 
         asyncio.run(run_test())
 
@@ -454,6 +441,158 @@ class TestErrorHandling(unittest.TestCase):
                 self.assertGreater(len(message), 1000)  # Should be substantial
 
         asyncio.run(run_test())
+
+
+class TestJWTIDClaim(unittest.TestCase):
+    """Test JWT ID (jti) claim functionality"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.sender = TACSender(domain="agent.com", private_key=self.private_key)
+
+    def test_jti_included_in_jwt(self):
+        """Test that jti claim is included in generated JWT"""
+
+        async def run_test():
+            # Create recipient
+            recipient_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            recipient = TACRecipient(domain="merchant.com", private_key=recipient_private_key)
+
+            # Mock JWKS fetch for both sender and recipient
+            with patch.object(self.sender, "fetch_jwks") as mock_sender_fetch:
+                recipient_jwk = await recipient.get_public_jwk()
+                mock_sender_fetch.return_value = [recipient_jwk]
+
+                await self.sender.add_recipient_data("merchant.com", {"test": "data"})
+                message = await self.sender.generate_tac_message()
+
+                # Decode and verify jti is present
+                decoded = json.loads(base64.b64decode(message).decode("utf-8"))
+                self.assertIn("recipients", decoded)
+
+                # Process the message to get the JWT payload
+                with patch.object(recipient, "fetch_jwks") as mock_recipient_fetch:
+                    sender_jwk = await self.sender.get_public_jwk()
+                    mock_recipient_fetch.return_value = [sender_jwk]
+
+                    result = await recipient.process_tac_message(message)
+
+                    self.assertTrue(result["valid"])
+                    self.assertIn("jti", result)
+                    self.assertIsNotNone(result["jti"])
+                    # UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                    import re
+
+                    uuid_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                    self.assertRegex(result["jti"], uuid_pattern)
+
+        asyncio.run(run_test())
+
+    def test_unique_jti_per_message(self):
+        """Test that each message gets a unique jti"""
+
+        async def run_test():
+            recipient_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            recipient = TACRecipient(domain="merchant.com", private_key=recipient_private_key)
+
+            with patch.object(self.sender, "fetch_jwks") as mock_sender_fetch:
+                recipient_jwk = await recipient.get_public_jwk()
+                mock_sender_fetch.return_value = [recipient_jwk]
+
+                # Generate first message
+                await self.sender.add_recipient_data("merchant.com", {"test": "data1"})
+                message1 = await self.sender.generate_tac_message()
+
+                # Generate second message
+                self.sender.clear_recipient_data()
+                await self.sender.add_recipient_data("merchant.com", {"test": "data2"})
+                message2 = await self.sender.generate_tac_message()
+
+                # Get jti from both messages
+                with patch.object(recipient, "fetch_jwks") as mock_recipient_fetch:
+                    sender_jwk = await self.sender.get_public_jwk()
+                    mock_recipient_fetch.return_value = [sender_jwk]
+
+                    result1 = await recipient.process_tac_message(message1)
+                    result2 = await recipient.process_tac_message(message2)
+
+                    self.assertTrue(result1["valid"])
+                    self.assertTrue(result2["valid"])
+                    self.assertNotEqual(result1["jti"], result2["jti"])
+
+        asyncio.run(run_test())
+
+
+class TestPasswordProtectedKeys(unittest.TestCase):
+    """Test password-protected private key support"""
+
+    def test_password_parameter_accepted(self):
+        """Test that password parameter is accepted in constructor"""
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+        # Should accept password parameter without error
+        sender = TACSender(
+            domain="test.com",
+            private_key=private_key,
+            password=b"test_password"  # Password won't be used for unencrypted key
+        )
+        self.assertIsNotNone(sender)
+
+    def test_encrypted_pem_key_loading(self):
+        """Test loading encrypted PEM key with password"""
+        from cryptography.hazmat.primitives import serialization
+
+        # Generate a key and encrypt it with a password
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        password = b"test_password_123"
+
+        encrypted_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(password),
+        )
+
+        # Should be able to load with correct password
+        sender = TACSender(domain="test.com", private_key=encrypted_pem.decode(), password=password)
+        self.assertIsNotNone(sender.private_key)
+        self.assertIsNotNone(sender.public_key)
+
+    def test_encrypted_pem_wrong_password_fails(self):
+        """Test that wrong password fails to load encrypted key"""
+        from cryptography.hazmat.primitives import serialization
+        from errors import TACCryptoError
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        password = b"correct_password"
+
+        encrypted_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(password),
+        )
+
+        # Should fail with wrong password
+        with self.assertRaises(TACCryptoError):
+            TACSender(domain="test.com", private_key=encrypted_pem.decode(), password=b"wrong_password")
+
+    def test_encrypted_pem_missing_password_fails(self):
+        """Test that encrypted key without password fails"""
+        from cryptography.hazmat.primitives import serialization
+        from errors import TACCryptoError
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        password = b"test_password"
+
+        encrypted_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(password),
+        )
+
+        # Should fail without password
+        with self.assertRaises(TACCryptoError):
+            TACSender(domain="test.com", private_key=encrypted_pem.decode())
 
 
 if __name__ == "__main__":

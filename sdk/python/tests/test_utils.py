@@ -10,7 +10,7 @@ import sys
 import time
 import unittest
 
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 # Add src directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -92,17 +92,6 @@ class TestKeyOperations(unittest.TestCase):
         key_type = get_key_type(public_key)
         self.assertEqual(key_type, "RSA")
 
-    def test_get_key_type_ec(self):
-        """Test EC key type detection"""
-        private_key = ec.generate_private_key(ec.SECP256R1())
-
-        key_type = get_key_type(private_key)
-        self.assertEqual(key_type, "EC")
-
-        public_key = private_key.public_key()
-        key_type = get_key_type(public_key)
-        self.assertEqual(key_type, "EC")
-
     def test_get_key_type_invalid(self):
         """Test invalid key type handling"""
         with self.assertRaises(TACCryptoError):
@@ -125,30 +114,6 @@ class TestKeyOperations(unittest.TestCase):
         algorithm = get_algorithm_for_key(private_key, "enc")
         self.assertEqual(algorithm, "RSA-OAEP-256")
 
-    def test_get_algorithm_for_ec_signing(self):
-        """Test algorithm selection for EC signing"""
-        # P-256
-        private_key = ec.generate_private_key(ec.SECP256R1())
-        algorithm = get_algorithm_for_key(private_key, "sig")
-        self.assertEqual(algorithm, "ES256")
-
-        # P-384
-        private_key = ec.generate_private_key(ec.SECP384R1())
-        algorithm = get_algorithm_for_key(private_key, "sig")
-        self.assertEqual(algorithm, "ES384")
-
-        # P-521
-        private_key = ec.generate_private_key(ec.SECP521R1())
-        algorithm = get_algorithm_for_key(private_key, "sig")
-        self.assertEqual(algorithm, "ES512")
-
-    def test_get_algorithm_for_ec_encryption(self):
-        """Test algorithm selection for EC encryption"""
-        private_key = ec.generate_private_key(ec.SECP256R1())
-
-        algorithm = get_algorithm_for_key(private_key, "enc")
-        self.assertEqual(algorithm, "ECDH-ES+A256KW")
-
     def test_public_key_to_jwk_rsa(self):
         """Test RSA public key to JWK conversion"""
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -161,20 +126,6 @@ class TestKeyOperations(unittest.TestCase):
         self.assertEqual(jwk["alg"], "RS256")
         self.assertIn("n", jwk)
         self.assertIn("e", jwk)
-
-    def test_public_key_to_jwk_ec(self):
-        """Test EC public key to JWK conversion"""
-        private_key = ec.generate_private_key(ec.SECP256R1())
-        public_key = private_key.public_key()
-
-        jwk = public_key_to_jwk(public_key, "test-key-id")
-
-        self.assertEqual(jwk["kty"], "EC")
-        self.assertEqual(jwk["kid"], "test-key-id")
-        self.assertEqual(jwk["alg"], "ES256")
-        self.assertEqual(jwk["crv"], "P-256")
-        self.assertIn("x", jwk)
-        self.assertIn("y", jwk)
 
     def test_public_key_to_jwk_auto_key_id(self):
         """Test automatic key ID generation"""
@@ -208,33 +159,20 @@ class TestKeyFinding(unittest.TestCase):
         self.assertEqual(key["kid"], "rsa-enc")
         self.assertEqual(key["use"], "enc")
 
-    def test_find_encryption_key_ec(self):
-        """Test finding EC encryption key"""
-        keys = [
-            {"kty": "EC", "use": "sig", "kid": "ec-sig"},
-            {"kty": "EC", "use": "enc", "kid": "ec-enc", "alg": "ECDH-ES+A256KW"},
-            {"kty": "RSA", "use": "sig", "kid": "rsa-sig"},
-        ]
-
-        key = find_encryption_key(keys)
-        self.assertIsNotNone(key)
-        self.assertEqual(key["kid"], "ec-enc")
-        self.assertEqual(key["use"], "enc")
-
     def test_find_encryption_key_fallback(self):
         """Test encryption key fallback when no explicit enc key"""
-        keys = [{"kty": "RSA", "kid": "rsa-1"}, {"kty": "EC", "use": "sig", "kid": "ec-sig"}]  # No use specified
+        keys = [{"kty": "RSA", "kid": "rsa-1"}, {"kty": "RSA", "use": "sig", "kid": "rsa-sig"}]  # No use specified
 
         key = find_encryption_key(keys)
         self.assertIsNotNone(key)
-        self.assertEqual(key["kid"], "rsa-1")  # Should prefer RSA
+        self.assertEqual(key["kid"], "rsa-1")  # Should prefer RSA without use field
 
     def test_find_signing_key_by_kid(self):
         """Test finding signing key by key ID"""
         keys = [
             {"kty": "RSA", "use": "sig", "kid": "rsa-sig-1"},
             {"kty": "RSA", "use": "sig", "kid": "rsa-sig-2"},
-            {"kty": "EC", "use": "sig", "kid": "ec-sig"},
+            {"kty": "RSA", "use": "sig", "kid": "rsa-sig-3"},
         ]
 
         key = find_signing_key(keys, "rsa-sig-2")
@@ -244,14 +182,14 @@ class TestKeyFinding(unittest.TestCase):
     def test_find_signing_key_default(self):
         """Test finding default signing key"""
         keys = [
-            {"kty": "EC", "use": "enc", "kid": "ec-enc"},
+            {"kty": "RSA", "use": "enc", "kid": "rsa-enc"},
             {"kty": "RSA", "use": "sig", "kid": "rsa-sig"},
-            {"kty": "EC", "use": "sig", "kid": "ec-sig"},
+            {"kty": "RSA", "use": "sig", "kid": "rsa-sig-2"},
         ]
 
         key = find_signing_key(keys)
         self.assertIsNotNone(key)
-        self.assertEqual(key["kid"], "rsa-sig")  # Should prefer RSA
+        self.assertEqual(key["kid"], "rsa-sig")  # Should find first RSA signing key
 
     def test_find_key_not_found(self):
         """Test key not found scenarios"""
@@ -300,6 +238,27 @@ class TestUserAgent(unittest.TestCase):
         ua2 = get_user_agent()
 
         self.assertEqual(ua1, ua2)
+
+    def test_user_agent_hide_version(self):
+        """Test user agent with version hidden"""
+        user_agent = get_user_agent(hide_version=True)
+
+        self.assertEqual(user_agent, "TAC-Protocol")
+        self.assertNotIn("Python", user_agent)
+
+    def test_user_agent_show_version_explicit(self):
+        """Test user agent with version shown explicitly"""
+        user_agent = get_user_agent(hide_version=False)
+
+        self.assertIn("TAC-Protocol", user_agent)
+        self.assertIn("Python", user_agent)
+
+    def test_user_agent_default_shows_version(self):
+        """Test user agent default shows version"""
+        user_agent_default = get_user_agent()
+        user_agent_explicit = get_user_agent(hide_version=False)
+
+        self.assertEqual(user_agent_default, user_agent_explicit)
 
 
 class TestNetworkUtilities(unittest.TestCase):
@@ -392,7 +351,7 @@ class TestEdgeCases(unittest.TestCase):
         """Test handling of unicode in key data"""
         unicode_keys = [
             {"kty": "RSA", "kid": "tëst-kéy-🔑", "use": "sig"},
-            {"kty": "EC", "kid": "ключ-тест", "use": "enc"},
+            {"kty": "RSA", "kid": "ключ-тест", "use": "enc"},
         ]
 
         # Should handle unicode gracefully
@@ -430,11 +389,11 @@ class TestPerformance(unittest.TestCase):
 
     def test_key_finding_performance(self):
         """Test key finding performance with large key sets"""
-        # Create large key set
+        # Create large RSA key set
         keys = []
         for i in range(1000):
             keys.append(
-                {"kty": "RSA" if i % 2 == 0 else "EC", "kid": f"key-{i}", "use": "sig" if i % 3 == 0 else "enc"}
+                {"kty": "RSA", "kid": f"key-{i}", "use": "sig" if i % 3 == 0 else "enc"}
             )
 
         # Finding should be fast even with many keys

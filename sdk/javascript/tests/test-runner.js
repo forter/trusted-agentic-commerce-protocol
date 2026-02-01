@@ -62,7 +62,7 @@ const TEST_SUITES = [
     name: 'Error Handling & Edge Cases',
     file: 'errors.test.js',
     description: 'Input validation, runtime errors, and security edge cases',
-    timeout: 35000 // Increased from 20000
+    timeout: 90000 // Increased from 45000 (memory exhaustion tests need ~35s alone)
   },
   {
     name: 'Integration & Performance',

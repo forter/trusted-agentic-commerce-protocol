@@ -8,19 +8,42 @@ Python SDK implementing the [Trusted Agentic Commerce Protocol,](https://www.for
 - ✅ Prevent fraud: differentiates between legitimate agentic activity and fraud attempts
 
 ## Getting Started
+- [Trusted Agentic Commerce Protocol SDK for Python](#trusted-agentic-commerce-protocol-sdk-for-python)
+  - [Getting Started](#getting-started)
   - [Basic Usage](#basic-usage)
+    - [For Senders (AI Agents)](#for-senders-ai-agents)
+    - [For Recipients (Merchants)](#for-recipients-merchants)
   - [Advanced Usage](#advanced-usage)
+    - [Using Password-Protected Private Keys](#using-password-protected-private-keys)
     - [Collecting Vendor-Specific Data](#collecting-vendor-specific-data)
+      - [Example: Forter Integration](#example-forter-integration)
     - [Sending to Multiple Recipients](#sending-to-multiple-recipients)
     - [Setting Up Callbacks and Notifications](#setting-up-callbacks-and-notifications)
   - [Flask Integration](#flask-integration)
   - [FastAPI Integration](#fastapi-integration)
   - [Manual JWKS Management](#manual-jwks-management)
-  - [Testing](#testing)
+  - [Development](#development)
+    - [Installation](#installation)
+    - [Running Tests](#running-tests)
+    - [Test Suites](#test-suites)
+    - [Linting, Formatting \& Type Checking](#linting-formatting--type-checking)
+  - [CLI Tools](#cli-tools)
+    - [Installation](#installation-1)
+    - [tacp-send](#tacp-send)
+    - [tacp-receive](#tacp-receive)
+    - [Exit Codes](#exit-codes)
+    - [Expected output](#expected-output)
   - [API Reference](#api-reference)
-  - [Schema](../../schema/)
+    - [TACSender](#tacsender)
+      - [Constructor Options](#constructor-options)
+      - [Methods](#methods)
+    - [TACRecipient](#tacrecipient)
+      - [Constructor Options](#constructor-options-1)
+      - [Methods](#methods-1)
+      - [Static Methods](#static-methods)
   - [Features](#features)
   - [Requirements](#requirements)
+  - [License](#license)
 
 ## Basic Usage
 
@@ -109,6 +132,40 @@ else:
 ```
 
 ## Advanced Usage
+
+### Using Password-Protected Private Keys
+
+The Python SDK has built-in support for password-protected private keys:
+
+```python
+import os
+from trusted_agentic_commerce_protocol import TACSender, TACRecipient
+
+# Read encrypted PEM file
+with open('encrypted-key.pem', 'r') as f:
+    encrypted_pem = f.read()
+
+password = os.environ.get('KEY_PASSWORD').encode()  # Must be bytes
+
+# Use with TACSender - pass password directly
+sender = TACSender(
+    domain='agent.example.com',
+    private_key=encrypted_pem,
+    password=password  # Built-in password support
+)
+
+# Use with TACRecipient - pass password directly
+recipient = TACRecipient(
+    domain='merchant.example.com',
+    private_key=encrypted_pem,
+    password=password  # Built-in password support
+)
+
+# You can also change keys later with set_private_key()
+new_encrypted_key = open('new-key.pem').read()
+new_password = b'new_password'
+sender.set_private_key(new_encrypted_key, password=new_password)
+```
 
 ### Collecting Vendor-Specific Data
 
@@ -424,15 +481,188 @@ print(f"Version: {info['version']}")
 
 ## Development
 
-### Installation & Testing
+### Installation
 
 ```bash
 make install-dev           # Install development dependencies
-make test                  # Run all tests
-make lint                  # Run linting
-make lint-fix              # Auto-fix linting issues
-make format                # Format code with Black + isort
+# Or manually:
+pip install -r requirements-dev.txt
+```
+
+### Running Tests
+
+The SDK includes a comprehensive test suite covering all aspects of the TAC Protocol implementation. Tests use pytest with asyncio support.
+
+```bash
+# Run all tests
+make test
+
+# Run specific test suite
+make test-crypto           # Cryptographic operations
+make test-cache            # JWKS cache management
+make test-network          # Network operations & retries
+make test-sender           # TACSender message creation
+make test-recipient        # TACRecipient message processing
+make test-errors           # Error handling & edge cases
+make test-integration      # End-to-end scenarios
+make test-utils            # Utility functions
+
+# List available test modules
+make test-list
+
+# Or run directly with pytest
+pytest tests/                          # All tests
+pytest tests/test_sender.py            # Specific file
+pytest tests/test_sender.py -k "test_" # Specific pattern
+pytest tests/ -v                       # Verbose output
+pytest tests/ --cov=src                # With coverage
+```
+
+### Test Suites
+
+| Suite | Description |
+|-------|-------------|
+| `crypto` | Key management, algorithm selection, and cryptographic primitives |
+| `cache` | JWKS caching behavior, TTL expiration, concurrency, and race conditions |
+| `network` | JWKS fetching, retry logic with exponential backoff, timeouts, and error handling |
+| `sender` | TACSender message creation, multi-recipient encryption, JWT signing |
+| `recipient` | TACRecipient message validation, signature verification, decryption |
+| `errors` | Input validation, runtime errors, security edge cases |
+| `integration` | Full end-to-end scenarios, performance tests, security validation |
+| `utils` | Helper functions, key operations, base64 encoding, JWK conversion |
+
+### Linting, Formatting & Type Checking
+
+```bash
+make lint                  # Run flake8 linting
+make lint-fix              # Auto-fix then show remaining issues
+make format                # Format with Black + isort
+make format-check          # Check formatting without changes
 make type-check            # Run mypy type checking
+make fix                   # Format + lint fix
+make clean                 # Clean generated files
+make dev                   # Full workflow: clean, format, lint, type-check, test
+```
+
+## CLI Tools
+
+The SDK includes command-line tools for testing and debugging TAC Protocol messages.
+
+### Installation
+
+After installing the SDK, the CLI tools are available as:
+- `tacp-send` - Sign and encrypt TAC messages
+- `tacp-receive` - Decrypt and verify TAC messages
+
+### tacp-send
+
+Sign and encrypt TAC Protocol messages.
+
+```bash
+# Basic usage with message as argument
+tacp-send -k sender.pem -d agent.example.com -m '{"merchant.com": {"user": {"id": "123"}}}'
+
+# With password-protected key
+tacp-send -k sender.pem -d agent.example.com -p mypassword -m '{"merchant.com": {"data": "value"}}'
+
+# From file input
+tacp-send -k sender.pem -d agent.example.com -i payload.json
+
+# From stdin
+echo '{"merchant.com": {"user": {"id": "123"}}}' | tacp-send -k sender.pem -d agent.example.com
+
+# Custom TTL
+tacp-send -k sender.pem -d agent.example.com --ttl 7200 -m '{"merchant.com": {}}'
+
+# Output to file
+tacp-send -k sender.pem -d agent.example.com -m '{"merchant.com": {}}' -o message.tac
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `-k, --key <file>` | Sender's private key (PEM file) **[required]** |
+| `-d, --domain <domain>` | Sender's domain (issuer) **[required]** |
+| `-p, --password <password>` | Password for encrypted private key |
+| `-m, --message <json>` | Message as JSON: `{"recipient.com": {...data...}, ...}` |
+| `-i, --input <file>` | Input message file (default: stdin) |
+| `-o, --output <file>` | Output file (default: stdout) |
+| `--ttl <seconds>` | JWT TTL in seconds (default: 3600) |
+| `--raw` | Output only base64 message |
+| `-q, --quiet` | Suppress warnings |
+
+### tacp-receive
+
+Decrypt and verify TAC Protocol messages.
+
+```bash
+# Basic usage with message as argument
+tacp-receive -k recipient.pem -d merchant.com -m "eyJ..."
+
+# With password-protected key
+tacp-receive -k recipient.pem -d merchant.com -p mypassword -m "eyJ..."
+
+# From file input
+tacp-receive -k recipient.pem -d merchant.com -i message.tac
+
+# From stdin
+echo "eyJ..." | tacp-receive -k recipient.pem -d merchant.com
+
+# Allow expired tokens (for testing)
+tacp-receive -k recipient.pem -d merchant.com --allow-expired -m "eyJ..."
+
+# Raw output (payload only)
+tacp-receive -k recipient.pem -d merchant.com --raw -m "eyJ..."
+
+# Verbose output with warnings
+tacp-receive -k recipient.pem -d merchant.com -v -m "eyJ..."
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `-k, --key <file>` | Recipient's private key (PEM file) **[required]** |
+| `-d, --domain <domain>` | Recipient's domain **[required]** |
+| `-p, --password <password>` | Password for encrypted private key |
+| `-m, --message <base64>` | TAC message as base64 string |
+| `-i, --input <file>` | Input file (default: stdin) |
+| `-o, --output <file>` | Output file (default: stdout) |
+| `--raw` | Output only payload, no metadata |
+| `--allow-expired` | Treat expired token as warning instead of error |
+| `-v, --verbose` | Verbose output with warnings |
+| `-q, --quiet` | Suppress warnings |
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error |
+| 2 | Invalid arguments |
+| 3 | File/IO error |
+| 4 | Invalid key |
+| 5 | Decryption failed |
+| 6 | Signature verification failed |
+| 7 | JWT expired/invalid |
+| 8 | Network error (JWKS fetch) |
+
+### Expected output
+
+```json
+{
+  "success": true,
+  "issuer": "sender.example.com",
+  "expires": "2026-02-01T15:30:00.000Z",
+  "recipients": ["recipient.example.com"],
+  "payload": {
+    "user": {
+      "id": "user123",
+      "email": "test@example.com"
+    }
+  },
+  "warnings": [],
+  "errors": []
+}
 ```
 
 ## API Reference
@@ -449,7 +679,7 @@ make type-check            # Run mypy type checking
 
 #### Methods
 
-- `set_private_key(private_key)` - Set RSA or EC private key (public key auto-derived)
+- `set_private_key(private_key)` - Set RSA private key (public key auto-derived)
 - `generate_key_id()` - Get key ID for current private key
 - `add_recipient_data(domain, data)` - Add data for a specific recipient domain (async)
 - `set_recipients_data(recipients_data)` - Set all recipients data (clears existing first, async)
@@ -470,7 +700,7 @@ make type-check            # Run mypy type checking
 
 #### Methods
 
-- `set_private_key(private_key)` - Set RSA or EC private key (public key auto-derived)
+- `set_private_key(private_key)` - Set RSA private key (public key auto-derived)
 - `generate_key_id()` - Get key ID for current private key
 - `process_tac_message(tac_message)` - Process and decrypt TAC-Protocol message (async)
 - `fetch_jwks(domain, force_refresh=False)` - Get sender's public keys (async)
@@ -483,7 +713,7 @@ make type-check            # Run mypy type checking
 ## Features
 
 - **JWS+JWE Security**: JWT signatures (JWS) wrapped in JSON Web Encryption (JWE) for both authentication and confidentiality
-- **RSA & EC Key Support**: Compatible with RSA and Elliptic Curve (P-256/384/521) keys
+- **RSA Key Support**: Compatible with RSA keys (minimum 2048-bit, 3072-bit recommended)
 - **Multi-Recipient Encryption**: Single message encrypted for multiple recipients with data isolation
 - **Key Rotation Support**: Automatic key ID (`kid`) handling for seamless key rotation
 - **JWKS Integration**: Standard `.well-known/jwks.json` endpoint support

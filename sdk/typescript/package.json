@@ -1,10 +1,14 @@
 {
   "name": "trusted-agentic-commerce-protocol",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "TypeScript SDK implementing the Trusted Agentic Commerce Protocol for secure authentication and data encryption between AI agents, merchants and merchant vendors.",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "bin": {
+    "tacp-send": "./dist/cli/tacp-send.js",
+    "tacp-receive": "./dist/cli/tacp-receive.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "npm run build && node dist/tests/test-runner.js",
@@ -53,6 +57,7 @@
     "eslint-config-prettier": "^10.1.8"
   },
   "dependencies": {
+    "commander": "^12.0.0",
     "jose": "^5.2.0"
   }
 }

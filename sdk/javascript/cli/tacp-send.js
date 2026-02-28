@@ -22,7 +22,7 @@ program
   .option('--ttl <seconds>', 'JWT TTL in seconds', '3600')
   .option('--raw', 'Output only base64 message')
   .option('-q, --quiet', 'Suppress warnings')
-  .version('0.2.0');
+  .version('0.3.0');
 
 program.parse();
 
